@@ -64,23 +64,30 @@ class AnimatedStatusBar:
     A reusable progress widget that shows an animated dots message while
     an LLM call is in progress, with an optional Cancel button.
 
+    IMPORTANT — geometry manager compatibility:
+        All screens in this app use grid().  AnimatedStatusBar therefore
+        uses grid()/grid_remove() internally, NOT pack/pack_forget, so it
+        can safely live inside any grid-managed parent frame.
+
     Usage:
-        bar = AnimatedStatusBar(parent_frame, on_cancel=self._cancel_fn)
-        bar.show("Generating topic")   # starts animation in the parent frame
-        bar.hide()                     # stops animation and hides the frame
+        bar = AnimatedStatusBar(parent_frame, grid_row=5,
+                                on_cancel=self._cancel_fn)
+        bar.show("Generating topic")   # makes the row visible + starts dots
+        bar.hide()                     # stops animation, hides the row
 
     The widget manages its own Tkinter 'after' loop so it never blocks the
-    main thread.  Call hide() from any callback — it is safe to call even
-    if already hidden.
+    main thread.  Call hide() from any callback — safe even if already hidden.
     """
 
     _DOT_INTERVAL_MS = 500   # milliseconds between dot updates
     _MAX_DOTS = 4
 
-    def __init__(self, parent: tk.Frame, on_cancel=None):
+    def __init__(self, parent: tk.Frame, grid_row: int = 0, on_cancel=None):
         """
         Args:
-            parent:    The frame inside which the bar will be packed.
+            parent:    The grid-managed frame that owns this bar.
+            grid_row:  The grid row to place the bar in (must not conflict
+                       with other widgets in that parent).
             on_cancel: Optional callable invoked when the user clicks Cancel.
                        The bar hides itself first, then calls on_cancel().
         """
@@ -89,9 +96,12 @@ class AnimatedStatusBar:
         self._after_id = None
         self._message = ""
         self._dot_count = 0
+        self._grid_row = grid_row
 
-        # Outer frame — hidden until show() is called
+        # Outer frame — placed in the grid but hidden via grid_remove() initially
         self._frame = tk.Frame(parent, bg="#f0f0f0", relief=tk.SUNKEN, bd=1)
+        self._frame.grid(row=grid_row, column=0, sticky="ew", pady=(2, 0))
+        self._frame.grid_remove()   # hidden by default; show() calls grid() again
 
         self._label = tk.Label(
             self._frame,
@@ -123,15 +133,15 @@ class AnimatedStatusBar:
 
     def show(self, message: str):
         """
-        Pack the bar inside its parent and start the animated dots.
+        Make the bar visible and start the animated dots.
 
         Args:
-            message: The base status text, e.g. "Generating topic".
-                     Dots ("...") are appended automatically.
+            message: Base status text, e.g. "Generating topic".
+                     Dots are appended automatically by the animation loop.
         """
         self._message = message
         self._dot_count = 0
-        self._frame.pack(fill=tk.X, pady=(2, 0))
+        self._frame.grid()   # restore the previously grid_remove()'d frame
         self._tick()
 
     def hide(self):
@@ -139,7 +149,7 @@ class AnimatedStatusBar:
         if self._after_id is not None:
             self._frame.after_cancel(self._after_id)
             self._after_id = None
-        self._frame.pack_forget()
+        self._frame.grid_remove()
 
     @property
     def is_visible(self) -> bool:
@@ -441,18 +451,20 @@ class ChatbotGUI:
         )
 
         # Animated progress bar — shown only during generation (Sprint 3)
-        self.setup_progress = AnimatedStatusBar(frame, on_cancel=self._on_cancel_generation)
-        # (it packs/unpacks itself inside `frame`; no grid needed here)
+        # grid_row=5: sits between the buttons row (4) and the status label (6)
+        self.setup_progress = AnimatedStatusBar(
+            frame, grid_row=5, on_cancel=self._on_cancel_generation
+        )
 
-        # Status label — always visible at the bottom
+        # Status label — always visible at the bottom (row 6)
         self.setup_status_var = tk.StringVar(value="Ready")
         self.setup_status_label = tk.Label(
             frame, textvariable=self.setup_status_var,
             font=("Arial", 9), fg="#555555", relief=tk.SUNKEN,
             anchor="w", padx=10, pady=3
         )
-        self.setup_status_label.grid(row=5, column=0, sticky="ew")
-        self._register_dir_label(self.setup_status_label, 5, 0)
+        self.setup_status_label.grid(row=6, column=0, sticky="ew")
+        self._register_dir_label(self.setup_status_label, 6, 0)
 
     def _update_setup_labels(self):
         if self.lang == "he":
@@ -1023,8 +1035,9 @@ class ChatbotGUI:
         )
 
         # Animated progress bar for chat LLM calls (Sprint 3)
+        # grid_row=6: sits between the mentor label (row 5) and mentor panel (row 7)
         # No cancel button — mid-chat cancellation would corrupt conversation history
-        self.chat_progress = AnimatedStatusBar(frame)
+        self.chat_progress = AnimatedStatusBar(frame, grid_row=6)
 
         # Mentor panel label
         self.mentor_label_var = tk.StringVar(value="Mentor / Summary:")
