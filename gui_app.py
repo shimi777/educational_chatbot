@@ -27,6 +27,10 @@ from backend.conversation_manager import ConversationManager
 from backend.topic_config import TopicConfig
 from backend.topic_generator import TopicGenerator
 from backend.llm_client import LLMClient
+from backend.config import config
+from backend.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -51,6 +55,113 @@ RLM = "\u200F"  # Right-to-Left Mark
 LRM = "\u200E"  # Left-to-Right Mark
 
 
+# ============================================================================
+# ANIMATED STATUS BAR  (Sprint 3)
+# ============================================================================
+
+class AnimatedStatusBar:
+    """
+    A reusable progress widget that shows an animated dots message while
+    an LLM call is in progress, with an optional Cancel button.
+
+    Usage:
+        bar = AnimatedStatusBar(parent_frame, on_cancel=self._cancel_fn)
+        bar.show("Generating topic")   # starts animation in the parent frame
+        bar.hide()                     # stops animation and hides the frame
+
+    The widget manages its own Tkinter 'after' loop so it never blocks the
+    main thread.  Call hide() from any callback — it is safe to call even
+    if already hidden.
+    """
+
+    _DOT_INTERVAL_MS = 500   # milliseconds between dot updates
+    _MAX_DOTS = 4
+
+    def __init__(self, parent: tk.Frame, on_cancel=None):
+        """
+        Args:
+            parent:    The frame inside which the bar will be packed.
+            on_cancel: Optional callable invoked when the user clicks Cancel.
+                       The bar hides itself first, then calls on_cancel().
+        """
+        self._parent = parent
+        self._on_cancel = on_cancel
+        self._after_id = None
+        self._message = ""
+        self._dot_count = 0
+
+        # Outer frame — hidden until show() is called
+        self._frame = tk.Frame(parent, bg="#f0f0f0", relief=tk.SUNKEN, bd=1)
+
+        self._label = tk.Label(
+            self._frame,
+            text="",
+            font=("Arial", 9),
+            fg="#444444",
+            bg="#f0f0f0",
+            anchor="w",
+            padx=8,
+        )
+        self._label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        if on_cancel is not None:
+            self._cancel_btn = tk.Button(
+                self._frame,
+                text="✕ Cancel",
+                font=("Arial", 8),
+                fg="white",
+                bg=COLORS["gray_btn"],
+                relief=tk.FLAT,
+                padx=6,
+                command=self._handle_cancel,
+            )
+            self._cancel_btn.pack(side=tk.RIGHT, padx=4, pady=2)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def show(self, message: str):
+        """
+        Pack the bar inside its parent and start the animated dots.
+
+        Args:
+            message: The base status text, e.g. "Generating topic".
+                     Dots ("...") are appended automatically.
+        """
+        self._message = message
+        self._dot_count = 0
+        self._frame.pack(fill=tk.X, pady=(2, 0))
+        self._tick()
+
+    def hide(self):
+        """Stop the animation and hide the bar."""
+        if self._after_id is not None:
+            self._frame.after_cancel(self._after_id)
+            self._after_id = None
+        self._frame.pack_forget()
+
+    @property
+    def is_visible(self) -> bool:
+        return self._frame.winfo_ismapped()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _tick(self):
+        dots = "." * (self._dot_count % (self._MAX_DOTS + 1))
+        self._label.config(text=f"{self._message}{dots}")
+        self._dot_count += 1
+        self._after_id = self._frame.after(self._DOT_INTERVAL_MS, self._tick)
+
+    def _handle_cancel(self):
+        self.hide()
+        logger.info("User cancelled operation: '%s'", self._message)
+        if self._on_cancel is not None:
+            self._on_cancel()
+
+
 class ChatbotGUI:
     """Main GUI application with 5-screen flow and full RTL support."""
 
@@ -63,8 +174,9 @@ class ChatbotGUI:
         # State
         self.topic_config = None
         self.manager = None
-        self.lang = "en"
+        self.lang = config.default_language
         self.is_processing = False
+        self._generation_cancelled = False   # Sprint 3: soft-cancel for topic generation
 
         # Timer state
         self.chat_timer_running = False
@@ -76,9 +188,16 @@ class ChatbotGUI:
         self.lesson_seconds_left = 0
         self.lesson_timer_after_id = None
 
-        # Configurable durations (in minutes, set on settings screen)
-        self.lesson_minutes = 3
-        self.teaching_minutes = 10
+        # Configurable durations — seeded from config, overridden by Settings screen
+        self.lesson_minutes = config.default_prep_minutes
+        self.teaching_minutes = config.default_teaching_minutes
+
+        logger.info(
+            "ChatbotGUI started | lang=%s | prep=%dm | teach=%dm",
+            self.lang,
+            self.lesson_minutes,
+            self.teaching_minutes,
+        )
 
         # Screens
         self.root.columnconfigure(0, weight=1)
@@ -290,7 +409,7 @@ class ChatbotGUI:
                                    font=("Arial", 10))
         self.age_label.pack(side=tk.LEFT, padx=(0, 5))
         self.age_spinner = tk.Spinbox(self.setup_settings_frame, from_=8, to=18, width=4,
-                                       font=("Arial", 10), value=10)
+                                       font=("Arial", 10), value=config.default_student_age)
         self.age_spinner.pack(side=tk.LEFT, padx=(0, 20))
 
         self._register_dir_btn_frame(
@@ -321,7 +440,11 @@ class ChatbotGUI:
             [self.generate_btn, self.load_btn]
         )
 
-        # Status
+        # Animated progress bar — shown only during generation (Sprint 3)
+        self.setup_progress = AnimatedStatusBar(frame, on_cancel=self._on_cancel_generation)
+        # (it packs/unpacks itself inside `frame`; no grid needed here)
+
+        # Status label — always visible at the bottom
         self.setup_status_var = tk.StringVar(value="Ready")
         self.setup_status_label = tk.Label(
             frame, textvariable=self.setup_status_var,
@@ -345,6 +468,10 @@ class ChatbotGUI:
             self.load_btn.config(text="Load Saved Topic")
             self.age_label.config(text="Student age:")
 
+    # Maximum characters accepted as learning material (~15k chars ≈ 3,750 tokens,
+    # safely within gpt-4o-mini's context window after adding system prompts).
+    _MAX_MATERIAL_CHARS = 15_000
+
     def _on_generate_topic(self):
         raw = self.material_input.get("1.0", tk.END).strip()
         if not raw:
@@ -352,45 +479,83 @@ class ChatbotGUI:
             messagebox.showwarning("Input Required", msg)
             return
 
+        if len(raw) > self._MAX_MATERIAL_CHARS:
+            if self.lang == "he":
+                msg = (
+                    f"החומר ארוך מדי ({len(raw):,} תווים).\n"
+                    f"אנא קצר אותו ל-{self._MAX_MATERIAL_CHARS:,} תווים לכל היותר."
+                )
+            else:
+                msg = (
+                    f"Material is too long ({len(raw):,} characters).\n"
+                    f"Please shorten it to under {self._MAX_MATERIAL_CHARS:,} characters."
+                )
+            messagebox.showwarning("Input Too Long", msg)
+            logger.warning(
+                "Material rejected: %d chars (limit %d)", len(raw), self._MAX_MATERIAL_CHARS
+            )
+            return
+
+        logger.info("Generating topic | material=%d chars", len(raw))
         target_age = int(self.age_spinner.get())
 
+        self._generation_cancelled = False
         self.generate_btn.config(state=tk.DISABLED)
         self.load_btn.config(state=tk.DISABLED)
-        self.setup_status_var.set(
-            "מייצר נושא... זה עשוי לקחת 30-60 שניות." if self.lang == "he"
-            else "Generating topic... This may take 30-60 seconds."
-        )
+
+        msg = "מייצר נושא" if self.lang == "he" else "Generating topic"
+        self.setup_status_var.set("")          # clear static label while bar is shown
+        self.setup_progress.show(msg)
 
         def generate():
             try:
                 llm = LLMClient()
                 generator = TopicGenerator(llm)
-                config = generator.generate_topic_config(raw, target_age)
-                self.root.after(0, lambda: self._on_topic_generated(config))
+                cfg = generator.generate_topic_config(raw, target_age)
+                # If user cancelled while LLM was running, silently discard result
+                if self._generation_cancelled:
+                    logger.info("Generation result discarded (cancelled by user)")
+                    return
+                self.root.after(0, lambda: self._on_topic_generated(cfg))
             except Exception as e:
-                self.root.after(0, lambda: self._on_generation_error(str(e)))
+                if not self._generation_cancelled:
+                    self.root.after(0, lambda: self._on_generation_error(str(e)))
 
         threading.Thread(target=generate, daemon=True).start()
 
-    def _on_topic_generated(self, config):
-        self.topic_config = config
+    def _on_cancel_generation(self):
+        """Called when user clicks Cancel on the setup progress bar."""
+        self._generation_cancelled = True
         self.generate_btn.config(state=tk.NORMAL)
         self.load_btn.config(state=tk.NORMAL)
-        self.setup_status_var.set(f"Topic generated: {config.topic_name_en}")
+        self.setup_status_var.set(
+            "בוטל." if self.lang == "he" else "Cancelled."
+        )
+
+    def _on_topic_generated(self, topic_config):
+        self.topic_config = topic_config
+        self.setup_progress.hide()
+        self.generate_btn.config(state=tk.NORMAL)
+        self.load_btn.config(state=tk.NORMAL)
+        self.setup_status_var.set(f"Topic generated: {topic_config.topic_name_en}")
+        logger.info("Topic generated: '%s'", topic_config.topic_name_en)
 
         # Save automatically
         save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_topic.json")
         try:
-            config.save_to_file(save_path)
-        except Exception:
-            pass
+            topic_config.save_to_file(save_path)
+            logger.debug("Auto-saved topic to %s", save_path)
+        except Exception as e:
+            logger.warning("Could not auto-save topic: %s", e)
 
         self._show_screen("settings")
 
     def _on_generation_error(self, error_msg):
+        self.setup_progress.hide()
         self.generate_btn.config(state=tk.NORMAL)
         self.load_btn.config(state=tk.NORMAL)
         self.setup_status_var.set(f"Error: {error_msg[:80]}")
+        logger.error("Topic generation failed: %s", error_msg)
         messagebox.showerror("Generation Failed", error_msg)
 
     def _on_load_topic(self):
@@ -401,14 +566,16 @@ class ChatbotGUI:
         if not filepath:
             return
         try:
-            config = TopicConfig.load_from_file(filepath)
-            if not config.is_valid():
+            loaded = TopicConfig.load_from_file(filepath)
+            if not loaded.is_valid():
                 messagebox.showerror("Invalid File", "The loaded file is missing required fields.")
                 return
-            self.topic_config = config
-            self.setup_status_var.set(f"Loaded: {config.topic_name_en}")
+            self.topic_config = loaded
+            self.setup_status_var.set(f"Loaded: {loaded.topic_name_en}")
+            logger.info("Topic loaded from file: '%s'", loaded.topic_name_en)
             self._show_screen("settings")
         except Exception as e:
+            logger.error("Failed to load topic from %s: %s", filepath, e)
             messagebox.showerror("Load Failed", str(e))
 
     # ================================================================
@@ -453,7 +620,7 @@ class ChatbotGUI:
 
         self.settings_prep_spinner = tk.Spinbox(
             center_frame, from_=1, to=10, width=5,
-            font=("Arial", 14), value=3
+            font=("Arial", 14), value=config.default_prep_minutes
         )
         self.settings_prep_spinner.grid(row=0, column=1, sticky="w", padx=20, pady=(25, 10))
 
@@ -477,7 +644,7 @@ class ChatbotGUI:
 
         self.settings_teach_spinner = tk.Spinbox(
             center_frame, from_=3, to=30, width=5,
-            font=("Arial", 14), value=10
+            font=("Arial", 14), value=config.default_teaching_minutes
         )
         self.settings_teach_spinner.grid(row=2, column=1, sticky="w", padx=20, pady=(10, 10))
 
@@ -855,6 +1022,10 @@ class ChatbotGUI:
             [self.mentor_btn, self.eval_btn, self.summary_btn, self.new_conv_btn, self.back_setup_btn2]
         )
 
+        # Animated progress bar for chat LLM calls (Sprint 3)
+        # No cancel button — mid-chat cancellation would corrupt conversation history
+        self.chat_progress = AnimatedStatusBar(frame)
+
         # Mentor panel label
         self.mentor_label_var = tk.StringVar(value="Mentor / Summary:")
         self.mentor_label = tk.Label(
@@ -1008,12 +1179,13 @@ class ChatbotGUI:
         teacher_label = "אתה" if self.lang == "he" else "You"
         self._append_chat(teacher_label, text, "teacher")
 
-        # Disable input while waiting
+        # Disable input while waiting and show progress (Sprint 3)
         self.is_processing = True
         self._set_input_enabled(False)
-        self.chat_status_var.set(
-            "התלמיד חושב..." if self.lang == "he" else "Student is thinking..."
-        )
+        self.mentor_btn.config(state=tk.DISABLED)
+        msg = "התלמיד חושב" if self.lang == "he" else "Student is thinking"
+        self.chat_progress.show(msg)
+        self.chat_status_var.set("")
 
         def api_call():
             try:
@@ -1026,21 +1198,26 @@ class ChatbotGUI:
 
     def _on_student_response(self, response: str):
         """Handle response from the struggling student."""
+        self.chat_progress.hide()
         student_label = "תלמיד" if self.lang == "he" else "Student"
         self._append_chat(student_label, response, "student")
         self.is_processing = False
         if not self.session_ended:
             self._set_input_enabled(True)
+            self.mentor_btn.config(state=tk.NORMAL)
             self.input_field.focus_set()
         self._update_chat_status()
 
     def _on_api_error(self, error_msg: str):
         """Handle API errors."""
+        self.chat_progress.hide()
+        logger.error("API error during chat: %s", error_msg)
         self._append_chat("", f"Error: {error_msg}", "system")
         self._set_mentor_panel(f"Error: {error_msg}", "error")
         self.is_processing = False
         if not self.session_ended:
             self._set_input_enabled(True)
+            self.mentor_btn.config(state=tk.NORMAL)
 
     def _on_ask_mentor(self):
         """Get coaching advice from the mentor agent."""
@@ -1064,10 +1241,10 @@ class ChatbotGUI:
 
         self.is_processing = True
         self.mentor_btn.config(state=tk.DISABLED)
-        self._set_mentor_panel(
-            "מתייעץ עם המנטור..." if self.lang == "he" else "Consulting mentor...",
-            "mentor"
-        )
+        self.send_btn.config(state=tk.DISABLED)
+        msg = "מתייעץ עם המנטור" if self.lang == "he" else "Consulting mentor"
+        self.chat_progress.show(msg)
+        self._set_mentor_panel("", "mentor")
 
         def api_call():
             try:
@@ -1080,18 +1257,23 @@ class ChatbotGUI:
 
     def _on_mentor_response(self, advice: str):
         """Handle response from the mentor."""
+        self.chat_progress.hide()
         self._set_mentor_panel(advice, "mentor")
         self.is_processing = False
         if not self.session_ended:
             self.mentor_btn.config(state=tk.NORMAL)
+            self.send_btn.config(state=tk.NORMAL)
         self._update_chat_status()
 
     def _on_mentor_error(self, error_msg: str):
         """Handle mentor API errors."""
+        self.chat_progress.hide()
+        logger.error("Mentor API error: %s", error_msg)
         self._set_mentor_panel(f"Mentor error: {error_msg}", "error")
         self.is_processing = False
         if not self.session_ended:
             self.mentor_btn.config(state=tk.NORMAL)
+            self.send_btn.config(state=tk.NORMAL)
 
     def _on_evaluate(self):
         """Trigger performance evaluation."""
@@ -1100,11 +1282,12 @@ class ChatbotGUI:
 
         self.is_processing = True
         self.eval_btn.config(state=tk.DISABLED)
+        self.mentor_btn.config(state=tk.DISABLED)
         self._set_input_enabled(False)
 
-        self.chat_status_var.set(
-            "מבצע הערכה..." if self.lang == "he" else "Evaluating performance..."
-        )
+        msg = "מבצע הערכה" if self.lang == "he" else "Evaluating performance"
+        self.chat_progress.show(msg)
+        self.chat_status_var.set("")
 
         def api_call():
             try:
@@ -1117,6 +1300,7 @@ class ChatbotGUI:
 
     def _on_evaluation_result(self, evaluation: str):
         """Handle evaluation result — show on evaluation screen."""
+        self.chat_progress.hide()
         self.is_processing = False
         self.session_ended = True
         self._stop_chat_timer()
@@ -1127,9 +1311,12 @@ class ChatbotGUI:
 
     def _on_evaluation_error(self, error_msg: str):
         """Handle evaluation API errors."""
+        self.chat_progress.hide()
+        logger.error("Evaluation API error: %s", error_msg)
         self._set_mentor_panel(f"Evaluation error: {error_msg}", "error")
         self.is_processing = False
         self.eval_btn.config(state=tk.NORMAL)
+        self.mentor_btn.config(state=tk.NORMAL)
         if not self.session_ended:
             self._set_input_enabled(True)
 

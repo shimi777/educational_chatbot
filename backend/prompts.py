@@ -8,6 +8,9 @@ reading content from TopicConfig instead of hardcoded constants.
 """
 
 from backend.topic_config import TopicConfig
+from backend.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ============================================================================
 # LANGUAGE CONFIGURATION
@@ -171,10 +174,10 @@ def get_evaluation_messages(
 
 # Quick test
 if __name__ == "__main__":
-    print("Testing prompt templates (generic version)...\n")
+    logger.info("Testing prompt templates (generic version)...")
 
     # Create a minimal test TopicConfig
-    config = TopicConfig(
+    _config = TopicConfig(
         topic_name_en="Photosynthesis",
         student_persona_en="You are a confused 10-year-old learning about photosynthesis.",
         student_initial_message_en="Hi! I don't understand how plants make food from sunlight!",
@@ -182,17 +185,16 @@ if __name__ == "__main__":
         evaluation_prompt_en="Evaluate the explanation of photosynthesis.",
     )
 
-    msgs = get_struggling_student_messages(lang="en", topic_config=config)
-    print(f"Student messages: {len(msgs)} messages")
-    print(f"System prompt preview: {msgs[0]['content'][:80]}...")
-    print(f"Initial message: {msgs[1]['content'][:80]}...")
+    msgs = get_struggling_student_messages(lang="en", topic_config=_config)
+    logger.info("Student messages: %d messages", len(msgs))
+    logger.info("System prompt preview: %s...", msgs[0]["content"][:80])
+    logger.info("Initial message: %s...", msgs[1]["content"][:80])
 
     mentor_msgs = get_mentor_messages(
         explanation="Plants use sunlight",
         context="How do plants eat?",
         lang="en",
-        topic_config=config
+        topic_config=_config,
     )
-    print(f"\nMentor messages: {len(mentor_msgs)} messages")
-
-    print("\nPrompts OK (generic version)!")
+    logger.info("Mentor messages: %d messages", len(mentor_msgs))
+    logger.info("Prompts OK (generic version)!")

@@ -13,12 +13,15 @@ Now fully generic — all topic-specific content comes from TopicConfig.
 from typing import List, Dict, Optional
 from backend.llm_client import LLMClient
 from backend.topic_config import TopicConfig
+from backend.logger import get_logger
 from backend.prompts import (
     get_struggling_student_messages,
     get_mentor_messages,
     get_evaluation_messages,
     get_prompts_for_language,
 )
+
+logger = get_logger(__name__)
 
 
 class ConversationManager:
@@ -80,6 +83,12 @@ class ConversationManager:
         self.turn_count = 0
         self.is_initialized = True
 
+        logger.info(
+            "Conversation started | topic='%s' | lang=%s",
+            self.topic_config.topic_name_en,
+            self.lang,
+        )
+
         # Return initial student message in the current language
         prompts = get_prompts_for_language(self.lang, self.topic_config)
         return prompts["student_initial"]
@@ -124,6 +133,7 @@ class ConversationManager:
         })
 
         self.turn_count += 1
+        logger.debug("Turn %d completed", self.turn_count)
         return student_response
 
     def consult_mentor(self, teacher_explanation: str, student_context: str = "") -> str:
@@ -153,9 +163,10 @@ class ConversationManager:
         self.mentor_history.append({
             "explanation": teacher_explanation,
             "advice": mentor_response,
-            "turn": self.turn_count
+            "turn": self.turn_count,
         })
 
+        logger.debug("Mentor consultation #%d completed", len(self.mentor_history))
         return mentor_response
 
     def evaluate_performance(self) -> str:
@@ -179,9 +190,14 @@ class ConversationManager:
         evaluation = self.llm.chat(
             messages=messages,
             temperature=0.3,
-            max_tokens=500
+            max_tokens=500,
         )
 
+        logger.info(
+            "Evaluation complete | turns=%d | mentor_consultations=%d",
+            self.turn_count,
+            len(self.mentor_history),
+        )
         return evaluation
 
     def get_conversation_summary(self) -> Dict:

@@ -1,15 +1,35 @@
 #!/usr/bin/env python3
 """
-LLM Client - Abstraction layer for OpenAI/Ollama
-This allows easy switching between cloud and local models
+LLM Client - Abstraction layer for OpenAI / Ollama.
+
+Improvements over the prototype:
+- Configuration via AppConfig (no raw os.getenv() calls)
+- Structured logging (no print statements)
+- Automatic retry with exponential backoff via tenacity
+  (retries on: RateLimitError, APITimeoutError, APIConnectionError)
+- Hard timeout on every API call (default 60 s)
 """
 
-import os
 from typing import List, Dict
-from dotenv import load_dotenv
-from openai import OpenAI
 
-load_dotenv()
+from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
+
+from backend.config import config
+from backend.logger import get_logger
+
+logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Exceptions that are safe to retry
+# ---------------------------------------------------------------------------
+_RETRYABLE = (RateLimitError, APITimeoutError, APIConnectionError)
 
 
 class LLMClient:
@@ -17,106 +37,160 @@ class LLMClient:
     Unified interface for LLM calls.
     Supports both OpenAI API and Ollama (local).
     """
-    
-    def __init__(self, use_ollama: bool = False):
+
+    def __init__(self, use_ollama: bool | None = None):
         """
-        Initialize LLM client
-        
+        Initialize LLM client.
+
         Args:
-            use_ollama: If True, use Ollama. Otherwise use OpenAI.
+            use_ollama: Override the config value.  Pass None (default) to
+                        read from AppConfig / environment.
         """
-        self.use_ollama = use_ollama or os.getenv('USE_OLLAMA', 'false').lower() == 'true'
-        
+        # Allow explicit override; otherwise fall back to config
+        self.use_ollama = use_ollama if use_ollama is not None else config.use_ollama
+
         if self.use_ollama:
             self._init_ollama()
         else:
             self._init_openai()
-    
+
+    # ------------------------------------------------------------------
+    # Initialisation helpers
+    # ------------------------------------------------------------------
+
     def _init_openai(self):
-        """Initialize OpenAI client"""
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
-        
-        self.client = OpenAI(api_key=api_key)
-        self.model = os.getenv('MODEL_NAME', 'gpt-4o-mini')
-        print(f"✅ Using OpenAI model: {self.model}")
-    
+        """Initialize OpenAI client."""
+        if not config.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY is not set. "
+                "Add it to your .env file or environment variables."
+            )
+        self.client = OpenAI(api_key=config.openai_api_key)
+        self.model = config.model_name
+        logger.info("LLM provider: OpenAI | model: %s", self.model)
+
     def _init_ollama(self):
-        """Initialize Ollama client"""
-        # Ollama runs locally on http://localhost:11434
+        """Initialize Ollama client (local server, OpenAI-compatible API)."""
         self.client = OpenAI(
-            base_url="http://localhost:11434/v1",
-            api_key="ollama"  # Ollama doesn't need real API key
+            base_url=config.ollama_base_url,
+            api_key="ollama",  # Ollama does not require a real key
         )
-        self.model = os.getenv('OLLAMA_MODEL', 'llama3.1:8b')
-        print(f"✅ Using Ollama model: {self.model}")
-    
+        self.model = config.ollama_model
+        logger.info(
+            "LLM provider: Ollama | model: %s | url: %s",
+            self.model,
+            config.ollama_base_url,
+        )
+
+    # ------------------------------------------------------------------
+    # Core chat method — with retry + timeout
+    # ------------------------------------------------------------------
+
     def chat(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 500
+        max_tokens: int = 500,
     ) -> str:
         """
-        Send chat messages to LLM and get response
-        
+        Send chat messages to the LLM and return the response text.
+
+        Retries automatically on transient errors (rate limits, timeouts,
+        connection drops) up to LLM_MAX_RETRIES times with exponential
+        backoff.  A hard per-call timeout (LLM_TIMEOUT_SECONDS) prevents
+        indefinite hangs.
+
         Args:
-            messages: List of message dicts with 'role' and 'content'
-            temperature: Randomness (0=deterministic, 1=creative)
-            max_tokens: Maximum response length
-        
+            messages:    List of {"role": ..., "content": ...} dicts.
+            temperature: Sampling temperature (0 = deterministic, 1 = creative).
+            max_tokens:  Maximum number of tokens in the response.
+
         Returns:
-            Response text from the model
+            The model's response as a plain string.
+
+        Raises:
+            Any non-retryable OpenAI exception (e.g. AuthenticationError,
+            InvalidRequestError) or the last retryable exception after all
+            attempts are exhausted.
         """
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"❌ Error calling LLM: {e}")
-            raise
-    
+        return self._chat_with_retry(messages, temperature, max_tokens)
+
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE),
+        stop=stop_after_attempt(config.llm_max_retries),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        before_sleep=before_sleep_log(logger, log_level=20),  # 20 == logging.INFO
+        reraise=True,
+    )
+    def _chat_with_retry(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        """Internal method decorated with retry logic."""
+        logger.debug(
+            "LLM call | model=%s | msgs=%d | temp=%.2f | max_tokens=%d",
+            self.model,
+            len(messages),
+            temperature,
+            max_tokens,
+        )
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=config.llm_timeout_seconds,
+        )
+        content = response.choices[0].message.content
+        logger.debug(
+            "LLM response | %d chars received",
+            len(content) if content else 0,
+        )
+        return content
+
+    # ------------------------------------------------------------------
+    # Usage statistics
+    # ------------------------------------------------------------------
+
     def get_usage_stats(self, response) -> Dict:
         """
-        Extract usage statistics from response
-        (Only works for OpenAI, not Ollama)
+        Extract token usage and estimated cost from a raw API response.
+        Only meaningful for OpenAI; returns a stub for Ollama.
         """
         if self.use_ollama:
             return {"note": "Usage stats not available for Ollama"}
-        
+
         try:
-            return {
+            stats = {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
-                "estimated_cost": response.usage.total_tokens * 0.00000015  # gpt-4o-mini pricing
+                # gpt-4o-mini pricing as of early 2025
+                "estimated_cost_usd": response.usage.total_tokens * 0.00000015,
             }
-        except:
+            logger.debug("Token usage: %s", stats)
+            return stats
+        except Exception:
             return {}
 
 
-# Quick test function
-def test_client():
-    """Test the LLM client with a simple message"""
-    print("Testing LLM Client...")
-    
+# ---------------------------------------------------------------------------
+# Quick smoke-test (run directly: python -m backend.llm_client)
+# ---------------------------------------------------------------------------
+
+def _test_client():
+    """Minimal test: send one message and print the response."""
+    logger.info("Running LLMClient smoke test...")
     client = LLMClient()
-    
     messages = [
         {"role": "system", "content": "You are a helpful math tutor."},
-        {"role": "user", "content": "Explain what 2+2 equals in one sentence."}
+        {"role": "user", "content": "Explain what 2+2 equals in one sentence."},
     ]
-    
-    response = client.chat(messages, temperature=0.5, max_tokens=100)
-    print(f"\n📝 Response: {response}\n")
+    response = client.chat(messages, temperature=0.5, max_tokens=60)
+    logger.info("Response: %s", response)
 
 
 if __name__ == "__main__":
-    test_client()
+    _test_client()

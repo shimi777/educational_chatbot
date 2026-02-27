@@ -11,8 +11,15 @@ Takes teacher's input text about ANY topic and produces:
 """
 
 import json
+import re
+from pydantic import ValidationError
+
 from backend.llm_client import LLMClient
 from backend.topic_config import TopicConfig
+from backend.schemas import TopicGenerationResponse, HebrewTranslationResponse
+from backend.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -290,28 +297,28 @@ class TopicGenerator:
         Raises:
             ValueError: If generation fails or produces invalid output
         """
-        print(f"Generating topic configuration for age {target_age}...")
+        logger.info("Generating topic configuration | age=%d", target_age)
 
         # Step 1: Generate English content
-        print("  Step 1/2: Generating English content...")
+        logger.info("Step 1/2: Generating English content...")
         en_data = self._generate_english_content(raw_material, target_age)
 
         # Step 2: Generate Hebrew translation
-        print("  Step 2/2: Generating Hebrew translation...")
+        logger.info("Step 2/2: Generating Hebrew translation...")
         he_data = self._generate_hebrew_content(en_data, target_age)
 
         # Step 3: Assemble TopicConfig
-        print("  Assembling TopicConfig...")
+        logger.info("Assembling TopicConfig...")
         config = self._build_topic_config(en_data, he_data, raw_material, target_age)
 
         if not config.is_valid():
             raise ValueError("Generated TopicConfig is missing required fields")
 
-        print(f"  Done! Topic: {config.topic_name_en}")
+        logger.info("Topic generation complete | topic='%s'", config.topic_name_en)
         return config
 
     def _generate_english_content(self, raw_material: str, target_age: int) -> dict:
-        """Generate all topic content in English via LLM."""
+        """Generate all topic content in English via LLM, then validate with Pydantic."""
         prompt = ENGLISH_GENERATION_PROMPT.format(
             raw_material=raw_material,
             target_age=target_age
@@ -328,10 +335,29 @@ class TopicGenerator:
             max_tokens=4000
         )
 
-        return self._parse_json_response(response, "English generation")
+        raw_data = self._parse_json_response(response, "English generation")
+
+        try:
+            validated = TopicGenerationResponse(**raw_data)
+            logger.debug("English generation validated OK | topic='%s'", validated.topic_name)
+            return validated.model_dump()
+        except ValidationError as e:
+            # Surface a clear, human-readable error instead of a raw Pydantic dump
+            problems = "; ".join(
+                f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            )
+            logger.error("English generation failed Pydantic validation: %s", problems)
+            raise ValueError(f"LLM returned invalid topic structure: {problems}") from e
 
     def _generate_hebrew_content(self, en_data: dict, target_age: int) -> dict:
-        """Translate and adapt English content to Hebrew via LLM."""
+        """
+        Translate and adapt English content to Hebrew via LLM, then validate.
+
+        If the LLM returns invalid or incomplete Hebrew content, logs a warning
+        and falls back to the English data so the app stays usable in Hebrew mode
+        (English text will appear instead of a crash).
+        """
         en_json_str = json.dumps(en_data, ensure_ascii=False, indent=2)
         prompt = HEBREW_TRANSLATION_PROMPT.format(
             english_json=en_json_str,
@@ -349,27 +375,93 @@ class TopicGenerator:
             max_tokens=4000
         )
 
-        return self._parse_json_response(response, "Hebrew translation")
-
-    def _parse_json_response(self, response: str, context: str) -> dict:
-        """Parse JSON from LLM response, with cleanup for common issues."""
-        # Strip markdown code fences if present
-        text = response.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+        try:
+            raw_data = self._parse_json_response(response, "Hebrew translation")
+        except ValueError as e:
+            logger.warning("Hebrew translation JSON parse failed (%s). Falling back to English.", e)
+            return en_data
 
         try:
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Failed to parse JSON from LLM response ({context}): {e}\n"
-                f"Response preview: {text[:200]}..."
+            validated = HebrewTranslationResponse(**raw_data)
+            logger.debug("Hebrew translation validated OK | topic='%s'", validated.topic_name)
+            return validated.model_dump()
+        except ValidationError as e:
+            problems = "; ".join(
+                f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}"
+                for err in e.errors()
             )
+            logger.warning(
+                "Hebrew translation failed Pydantic validation (%s). Falling back to English.",
+                problems,
+            )
+            return en_data
+
+    def _parse_json_response(self, response: str, context: str) -> dict:
+        """
+        Robustly extract and parse JSON from an LLM response.
+
+        Applies three strategies in order:
+        1. Extract from a markdown code fence (```json ... ``` or ``` ... ```).
+        2. Find the outermost { } block, skipping any preamble/postamble text.
+        3. Attempt to fix a truncated JSON object by appending missing
+           closing braces/brackets (up to 3 repair passes).
+
+        Logs a warning whenever a recovery strategy is needed so that
+        prompt quality can be monitored over time.
+        """
+        if not response or not response.strip():
+            raise ValueError(f"LLM returned an empty response ({context})")
+
+        text = response.strip()
+
+        # --- Strategy 1: extract from markdown code fence ---
+        fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+        if fence_match:
+            candidate = fence_match.group(1).strip()
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "(%s) JSON inside code fence was still invalid, trying Strategy 2",
+                    context,
+                )
+                text = candidate  # carry the extracted text forward
+
+        # --- Strategy 2: find outermost { … } block ---
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            candidate = text[first_brace : last_brace + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "(%s) Brace-extracted JSON invalid, trying truncation repair",
+                    context,
+                )
+                text = candidate  # carry forward for repair
+
+        # --- Strategy 3: repair truncated JSON (missing closing delimiters) ---
+        for attempt in range(1, 4):
+            missing_braces = text.count("{") - text.count("}")
+            missing_brackets = text.count("[") - text.count("]")
+            suffix = ("]" * max(0, missing_brackets)) + ("}" * max(0, missing_braces))
+            repaired = text + suffix
+            try:
+                result = json.loads(repaired)
+                logger.warning(
+                    "(%s) Truncated JSON repaired on attempt %d (appended %r)",
+                    context, attempt, suffix,
+                )
+                return result
+            except json.JSONDecodeError:
+                # Try stripping the last incomplete token before repairing
+                text = text.rsplit(",", 1)[0] if "," in text else text
+
+        raise ValueError(
+            f"Failed to parse JSON from LLM response ({context}) after all "
+            f"recovery strategies.\nResponse preview: {response[:300]}..."
+        )
 
     def _build_topic_config(self, en_data: dict, he_data: dict,
                             raw_material: str, target_age: int) -> TopicConfig:
@@ -424,8 +516,7 @@ class TopicGenerator:
 
 # Quick test
 if __name__ == "__main__":
-    print("Testing TopicGenerator...")
-    print("(This requires a valid OPENAI_API_KEY in .env)")
+    logger.info("Testing TopicGenerator (requires OPENAI_API_KEY in .env)...")
 
     sample_material = """
     Newton's First Law of Motion states that an object at rest stays at rest,
@@ -439,14 +530,12 @@ if __name__ == "__main__":
 
     try:
         generator = TopicGenerator()
-        config = generator.generate_topic_config(sample_material, target_age=10)
-        print(f"\nGenerated: {config}")
-        print(f"Valid: {config.is_valid()}")
-        print(f"Initial message preview: {config.student_initial_message_en[:100]}...")
-        print(f"Hebrew topic: {config.topic_name_he}")
-
-        # Save for inspection
-        config.save_to_file("test_topic_config.json")
-        print("\nSaved to test_topic_config.json")
+        result = generator.generate_topic_config(sample_material, target_age=10)
+        logger.info("Generated: %s", result)
+        logger.info("Valid: %s", result.is_valid())
+        logger.info("Initial message preview: %s...", result.student_initial_message_en[:100])
+        logger.info("Hebrew topic: %s", result.topic_name_he)
+        result.save_to_file("test_topic_config.json")
+        logger.info("Saved to test_topic_config.json")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error("Error during test: %s", e)
