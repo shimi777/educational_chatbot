@@ -17,7 +17,7 @@ Usage: python gui_app.py
 import sys
 import os
 import tkinter as tk
-from tkinter import scrolledtext, filedialog, messagebox
+from tkinter import scrolledtext, filedialog, messagebox, ttk
 import threading
 import json
 
@@ -113,6 +113,8 @@ class AnimatedStatusBar:
             padx=8,
         )
         self._label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._pb = ttk.Progressbar(self._frame, mode="indeterminate", length=140)
+        self._pb.pack(side=tk.RIGHT, padx=6, pady=2)
 
         if on_cancel is not None:
             self._cancel_btn = tk.Button(
@@ -142,6 +144,7 @@ class AnimatedStatusBar:
         self._message = message
         self._dot_count = 0
         self._frame.grid()   # restore the previously grid_remove()'d frame
+        self._pb.start(10)
         self._tick()
 
     def hide(self):
@@ -149,6 +152,7 @@ class AnimatedStatusBar:
         if self._after_id is not None:
             self._frame.after_cancel(self._after_id)
             self._after_id = None
+        self._pb.stop()
         self._frame.grid_remove()
 
     @property
@@ -351,10 +355,103 @@ class ChatbotGUI:
             lang_btn.grid_configure(column=lang_col)
             if timer_label:
                 timer_label.grid_configure(column=timer_col)
+        # --- Settings screen: mirror label/spinner columns for RTL ---
+        if hasattr(self, "settings_center_frame") and hasattr(self, "settings_prep_label") and hasattr(self, "settings_prep_spinner"):
+            if is_rtl:
+                    # RTL: column 0 expands (acts like spacer), column 1 is tight at the right
+                    self.settings_center_frame.columnconfigure(0, weight=1)
+                    self.settings_center_frame.columnconfigure(1, weight=0)
+
+                    # Put label at far right (col 1), spinner just to its left (col 0, right-aligned)
+                    self.settings_prep_label.grid_configure(column=1, sticky="e")
+                    self.settings_prep_spinner.grid_configure(column=0, sticky="e")
+
+                    self.settings_teach_label.grid_configure(column=1, sticky="e")
+                    self.settings_teach_spinner.grid_configure(column=0, sticky="e")
+            else:
+                 # LTR: column 1 expands
+                    self.settings_center_frame.columnconfigure(0, weight=0)
+                    self.settings_center_frame.columnconfigure(1, weight=1)
+            
+                    # Normal layout: label left (col 0), spinner to the right (col 1)
+                    self.settings_prep_label.grid_configure(column=0, sticky="w")
+                    self.settings_prep_spinner.grid_configure(column=1, sticky="w")
+
+                    self.settings_teach_label.grid_configure(column=0, sticky="w")
+                    self.settings_teach_spinner.grid_configure(column=1, sticky="w")
 
     def _register_dir_label(self, label, row, col, padx=0, pady=0):
         """Register a label for directional flipping."""
         self._dir_labels.append((label, row, col, padx, pady))
+
+    def _install_text_context_menu(self, widget: tk.Text):
+        """Right-click context menu (Cut/Copy/Paste/Select All) for Text/ScrolledText."""
+        def _popup(event):
+            widget.focus_set()
+
+            menu = tk.Menu(widget, tearoff=0)
+
+            if getattr(self, "lang", "en") == "he":
+                labels = {"cut": "גזור", "copy": "העתק", "paste": "הדבק", "all": "בחר הכל"}
+            else:
+                labels = {"cut": "Cut", "copy": "Copy", "paste": "Paste", "all": "Select All"}
+
+            menu.add_command(label=labels["cut"], command=lambda: widget.event_generate("<<Cut>>"))
+            menu.add_command(label=labels["copy"], command=lambda: widget.event_generate("<<Copy>>"))
+            menu.add_command(label=labels["paste"], command=lambda: widget.event_generate("<<Paste>>"))
+            menu.add_separator()
+            menu.add_command(label=labels["all"], command=lambda: (widget.tag_add("sel", "1.0", "end-1c")))
+
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        # Windows/Linux: Button-3, some mac/touchpads: Button-2
+        widget.bind("<Button-3>", _popup)
+        widget.bind("<Button-2>", _popup)
+
+    def _install_clipboard_shortcuts(self, widget: tk.Text):
+        """Make Ctrl+V work reliably (even with non-Latin keyboard layouts)."""
+        def _paste(_e=None):
+            widget.event_generate("<<Paste>>")
+            return "break"
+
+        def _copy(_e=None):
+            widget.event_generate("<<Copy>>")
+            return "break"
+
+        def _cut(_e=None):
+            widget.event_generate("<<Cut>>")
+            return "break"
+
+        def _select_all(_e=None):
+            widget.tag_add("sel", "1.0", "end-1c")
+            return "break"
+
+        # Standard shortcuts
+        widget.bind("<Control-v>", _paste)
+        widget.bind("<Control-V>", _paste)
+        widget.bind("<Shift-Insert>", _paste)
+
+        widget.bind("<Control-c>", _copy)
+        widget.bind("<Control-C>", _copy)
+        widget.bind("<Control-Insert>", _copy)
+
+        widget.bind("<Control-x>", _cut)
+        widget.bind("<Control-X>", _cut)
+        widget.bind("<Shift-Delete>", _cut)
+
+        widget.bind("<Control-a>", _select_all)
+        widget.bind("<Control-A>", _select_all)
+
+        # Layout-independent: Ctrl+V often comes through as char '\x16'
+        def _ctrl_keypress(e):
+            if e.char == "\x16":  # SYN (Ctrl+V)
+                return _paste(e)
+            return None
+
+        widget.bind("<Control-KeyPress>", _ctrl_keypress)
 
     def _register_dir_btn_frame(self, frame, buttons, special_right_btn=None):
         """Register a button frame for directional repack."""
@@ -411,20 +508,45 @@ class ChatbotGUI:
         )
         self.material_input.grid(row=0, column=0, sticky="nsew")
 
+        self._install_text_context_menu(self.material_input)
+        self._install_clipboard_shortcuts(self.material_input)
+
         # Settings row (only age — time settings moved to Settings screen)
         self.setup_settings_frame = tk.Frame(frame)
         self.setup_settings_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=5)
 
         self.age_label = tk.Label(self.setup_settings_frame, text="Student age:",
-                                   font=("Arial", 10))
+                          font=("Arial", 10))
         self.age_label.pack(side=tk.LEFT, padx=(0, 5))
-        self.age_spinner = tk.Spinbox(self.setup_settings_frame, from_=8, to=18, width=4,
-                                       font=("Arial", 10), value=config.default_student_age)
-        self.age_spinner.pack(side=tk.LEFT, padx=(0, 20))
+
+        # Fix: use IntVar + textvariable so arrows work
+        default_age = int(config.default_student_age)
+        default_age = max(8, min(18, default_age))
+        self.age_var = tk.IntVar(value=default_age)
+
+        self.age_spinner = tk.Spinbox(
+            self.setup_settings_frame,
+            from_=8, to=18, increment=1,
+            textvariable=self.age_var,
+            width=4,
+            font=("Arial", 10),
+            justify="center",
+        )
+        self.age_spinner.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Hint label (EN/HE)
+        self.age_hint_var = tk.StringVar(value="Choose student age (8–18)")
+        self.age_hint_label = tk.Label(
+            self.setup_settings_frame,
+            textvariable=self.age_hint_var,
+            font=("Arial", 9),
+            fg="#888",
+        )
+        self.age_hint_label.pack(side=tk.LEFT, padx=(0, 20))
 
         self._register_dir_btn_frame(
             self.setup_settings_frame,
-            [self.age_label, self.age_spinner]
+            [self.age_label, self.age_spinner, self.age_hint_label]
         )
 
         # Buttons row
@@ -473,12 +595,14 @@ class ChatbotGUI:
             self.generate_btn.config(text="צור נושא")
             self.load_btn.config(text="טען נושא שמור")
             self.age_label.config(text="גיל התלמיד:")
+            self.age_hint_var.set("בחר גיל תלמיד (8–18)")
         else:
             self.setup_title_var.set("Educational Chatbot — Setup")
             self.setup_instruction_var.set("Paste your learning material below:")
             self.generate_btn.config(text="Generate Topic")
             self.load_btn.config(text="Load Saved Topic")
             self.age_label.config(text="Student age:")
+            self.age_hint_var.set("Choose student age (8–18)")
 
     # Maximum characters accepted as learning material (~15k chars ≈ 3,750 tokens,
     # safely within gpt-4o-mini's context window after adding system prompts).
@@ -509,7 +633,8 @@ class ChatbotGUI:
             return
 
         logger.info("Generating topic | material=%d chars", len(raw))
-        target_age = int(self.age_spinner.get())
+        target_age = int(self.age_var.get())
+        target_age = max(8, min(18, target_age))
 
         self._generation_cancelled = False
         self.generate_btn.config(state=tk.DISABLED)
@@ -620,6 +745,10 @@ class ChatbotGUI:
         # Center panel with settings
         center_frame = tk.Frame(frame, bg="#f5f5f5", relief=tk.GROOVE, borderwidth=2)
         center_frame.grid(row=2, column=0, padx=40, pady=20, sticky="nsew")
+        self.settings_center_frame = center_frame
+
+        # LTR default: left column fixed (labels), right column expands (spinners/space)
+        center_frame.columnconfigure(0, weight=0)
         center_frame.columnconfigure(1, weight=1)
 
         # --- Preparation Time ---
@@ -630,14 +759,20 @@ class ChatbotGUI:
         self.settings_prep_label.grid(row=0, column=0, sticky="w", padx=20, pady=(25, 10))
         self._register_dir_label(self.settings_prep_label, 0, 0, padx=20, pady=(25, 10))
 
+        default_prep = int(config.default_prep_minutes)
+        default_prep = max(1, min(20, default_prep))
+        self.settings_prep_var = tk.IntVar(value=default_prep)
+
         self.settings_prep_spinner = tk.Spinbox(
-            center_frame, from_=1, to=10, width=5,
-            font=("Arial", 14), value=config.default_prep_minutes
+            center_frame, from_=1, to=20, width=5,
+            font=("Arial", 14),
+            textvariable=self.settings_prep_var,
+            justify="center",
         )
         self.settings_prep_spinner.grid(row=0, column=1, sticky="w", padx=20, pady=(25, 10))
 
         self.settings_prep_desc_var = tk.StringVar(
-            value="How long you have to read and prepare before teaching"
+            value="How long you have to read and prepare before teaching (1–20 minutes)"
         )
         self.settings_prep_desc = tk.Label(
             center_frame, textvariable=self.settings_prep_desc_var,
@@ -654,14 +789,20 @@ class ChatbotGUI:
         self.settings_teach_label.grid(row=2, column=0, sticky="w", padx=20, pady=(10, 10))
         self._register_dir_label(self.settings_teach_label, 2, 0, padx=20, pady=(10, 10))
 
+        default_teach = int(config.default_teaching_minutes)
+        default_teach = max(3, min(60, default_teach))
+        self.settings_teach_var = tk.IntVar(value=default_teach)
+
         self.settings_teach_spinner = tk.Spinbox(
-            center_frame, from_=3, to=30, width=5,
-            font=("Arial", 14), value=config.default_teaching_minutes
+            center_frame, from_=3, to=60, width=5,
+            font=("Arial", 14),
+            textvariable=self.settings_teach_var,
+            justify="center",
         )
         self.settings_teach_spinner.grid(row=2, column=1, sticky="w", padx=20, pady=(10, 10))
 
         self.settings_teach_desc_var = tk.StringVar(
-            value="How long the teaching conversation lasts"
+            value="How long the teaching conversation lasts (3–60 minutes)"
         )
         self.settings_teach_desc = tk.Label(
             center_frame, textvariable=self.settings_teach_desc_var,
@@ -708,18 +849,18 @@ class ChatbotGUI:
             self.settings_title_var.set("הגדרות למידה")
             self.settings_desc_var.set("הגדר את זמני ההכנה וההוראה שלך:")
             self.settings_prep_label.config(text="זמן הכנה (דקות):")
-            self.settings_prep_desc_var.set("כמה זמן יש לך לקרוא ולהתכונן לפני ההוראה")
+            self.settings_prep_desc_var.set("(1-20 דקות) כמה זמן יש לך לקרוא ולהתכונן לפני ההוראה")
             self.settings_teach_label.config(text="זמן הוראה (דקות):")
-            self.settings_teach_desc_var.set("כמה זמן נמשכת שיחת ההוראה")
+            self.settings_teach_desc_var.set("(3-60 דקות) כמה זמן נמשכת שיחת ההוראה")
             self.settings_start_btn.config(text="התחל ללמוד")
             self.settings_back_btn.config(text="חזרה להגדרות")
         else:
             self.settings_title_var.set("Learning Settings")
             self.settings_desc_var.set("Configure your preparation and teaching session times:")
             self.settings_prep_label.config(text="Preparation Time (minutes):")
-            self.settings_prep_desc_var.set("How long you have to read and prepare before teaching")
+            self.settings_prep_desc_var.set("How long you have to read and prepare before teaching(1–20 minutes)")
             self.settings_teach_label.config(text="Teaching Session Time (minutes):")
-            self.settings_teach_desc_var.set("How long the teaching conversation lasts")
+            self.settings_teach_desc_var.set("How long the teaching conversation lasts (3–60 minutes)")
             self.settings_start_btn.config(text="Start Learning")
             self.settings_back_btn.config(text="Back to Setup")
 
@@ -733,10 +874,43 @@ class ChatbotGUI:
 
     def _on_settings_start(self):
         """Read settings values and proceed to lesson screen."""
-        self.lesson_minutes = int(self.settings_prep_spinner.get())
-        self.teaching_minutes = int(self.settings_teach_spinner.get())
+        # --- 1) Read + validate (allow manual typing) ---
+        try:
+            if hasattr(self, "settings_prep_var"):
+                prep = int(self.settings_prep_var.get())
+            else:
+                prep = int(self.settings_prep_spinner.get())
 
-        # Update topic info before moving on
+            if hasattr(self, "settings_teach_var"):
+                teach = int(self.settings_teach_var.get())
+            else:
+                teach = int(self.settings_teach_spinner.get())
+        except Exception:
+            messagebox.showwarning("Invalid input", "Please enter valid numbers for times.")
+            return
+
+        # --- 2) Clamp to allowed ranges ---
+        prep = max(1, min(60, prep))      # preparation: 1–60
+        teach = max(3, min(60, teach))    # teaching: 3–60
+
+        # --- 3) Write clamped values back into UI ---
+        if hasattr(self, "settings_prep_var"):
+            self.settings_prep_var.set(prep)
+        else:
+            self.settings_prep_spinner.delete(0, tk.END)
+            self.settings_prep_spinner.insert(0, str(prep))
+
+        if hasattr(self, "settings_teach_var"):
+            self.settings_teach_var.set(teach)
+        else:
+            self.settings_teach_spinner.delete(0, tk.END)
+            self.settings_teach_spinner.insert(0, str(teach))
+
+        # --- 4) Save into app state ---
+        self.lesson_minutes = prep
+        self.teaching_minutes = teach
+
+        # --- 5) Update topic info before moving on  ---
         if self.topic_config:
             topic = self.topic_config.get_topic_name(self.lang) or self.topic_config.get_topic_name("en")
             if self.lang == "he":
@@ -744,12 +918,13 @@ class ChatbotGUI:
             else:
                 self.settings_topic_var.set(f"Topic: {topic}")
 
+        # --- 6) Move to lesson screen  ---
         self._populate_lesson_screen()
         self._show_screen("lesson")
 
-    # ================================================================
-    # SCREEN 3: LESSON (Preparation)
-    # ================================================================
+        # ================================================================
+        # SCREEN 3: LESSON (Preparation)
+        # ================================================================
 
     def _build_lesson_screen(self):
         frame = tk.Frame(self.root)
@@ -795,17 +970,10 @@ class ChatbotGUI:
 
         self.start_teaching_btn = tk.Button(
             self.lesson_btn_frame, text="Start Teaching", font=("Arial", 11, "bold"),
-            bg=COLORS["green_btn"], fg="white", width=16, state=tk.DISABLED,
+            bg=COLORS["green_btn"], fg="white", width=16, state=tk.NORMAL,
             command=self._on_start_teaching
         )
         self.start_teaching_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.skip_timer_btn = tk.Button(
-            self.lesson_btn_frame, text="I'm Ready — Skip", font=("Arial", 10),
-            bg=COLORS["orange_btn"], fg="white", width=16,
-            command=self._on_skip_lesson_timer
-        )
-        self.skip_timer_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         self.back_to_settings_btn = tk.Button(
             self.lesson_btn_frame, text="Back to Settings", font=("Arial", 10),
@@ -824,7 +992,7 @@ class ChatbotGUI:
 
         self._register_dir_btn_frame(
             self.lesson_btn_frame,
-            [self.start_teaching_btn, self.skip_timer_btn, self.back_to_settings_btn],
+            [self.start_teaching_btn, self.back_to_settings_btn],
             special_right_btn=self.save_topic_btn
         )
 
@@ -839,13 +1007,11 @@ class ChatbotGUI:
         if lang == "he":
             self.lesson_title_var.set(self._bidi("הכנה: {}", topic))
             self.start_teaching_btn.config(text="התחל ללמד")
-            self.skip_timer_btn.config(text="אני מוכן — דלג")
             self.back_to_settings_btn.config(text="חזרה להגדרות")
             self.save_topic_btn.config(text="שמור נושא")
         else:
             self.lesson_title_var.set(f"Preparation: {topic}")
             self.start_teaching_btn.config(text="Start Teaching")
-            self.skip_timer_btn.config(text="I'm Ready — Skip")
             self.back_to_settings_btn.config(text="Back to Settings")
             self.save_topic_btn.config(text="Save Topic")
 
@@ -887,7 +1053,6 @@ class ChatbotGUI:
     def _start_lesson_timer(self):
         self._stop_lesson_timer()
         self.lesson_seconds_left = self.lesson_minutes * 60
-        self.start_teaching_btn.config(state=tk.DISABLED)
         self.lesson_timer_running = True
         self.lesson_timer_label.config(fg=COLORS["timer_green"])
         self._tick_lesson_timer()
@@ -899,31 +1064,29 @@ class ChatbotGUI:
         self.lesson_timer_var.set(f"{m:02d}:{s:02d}")
         if self.lesson_seconds_left <= 0:
             self.lesson_timer_running = False
-            self.start_teaching_btn.config(state=tk.NORMAL)
+            self.lesson_timer_var.set("00:00")
             self.lesson_info_var.set(
-                "אתה מוכן! לחץ 'התחל ללמד'" if self.lang == "he"
-                else "You're ready! Click 'Start Teaching'"
+                "הזמן נגמר — עוברים ללימוד..." if self.lang == "he"
+                else "Time is up — starting teaching..."
             )
+            self.root.after(200, self._auto_start_teaching)
             return
         if self.lesson_seconds_left <= 30:
             self.lesson_timer_label.config(fg=COLORS["timer_orange"])
         self.lesson_seconds_left -= 1
         self.lesson_timer_after_id = self.root.after(1000, self._tick_lesson_timer)
 
+
+    def _auto_start_teaching(self):
+        if getattr(self, "current_screen", None) != "lesson":
+            return
+        self._on_start_teaching()
+
     def _stop_lesson_timer(self):
         self.lesson_timer_running = False
         if self.lesson_timer_after_id:
             self.root.after_cancel(self.lesson_timer_after_id)
             self.lesson_timer_after_id = None
-
-    def _on_skip_lesson_timer(self):
-        self._stop_lesson_timer()
-        self.lesson_timer_var.set("00:00")
-        self.start_teaching_btn.config(state=tk.NORMAL)
-        self.lesson_info_var.set(
-            "אתה מוכן! לחץ 'התחל ללמד'" if self.lang == "he"
-            else "You're ready! Click 'Start Teaching'"
-        )
 
     def _on_start_teaching(self):
         self._stop_lesson_timer()
