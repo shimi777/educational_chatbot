@@ -172,6 +172,94 @@ def get_evaluation_messages(
     ]
 
 
+def get_single_explanation_evaluation_messages(
+    explanation: str,
+    evaluation_spec: dict,
+    lang: str = "en",
+    topic_config: TopicConfig = None,
+) -> list:
+    """
+    Build strict JSON-scoring prompts for evaluating one explanation.
+
+    Args:
+        explanation: The explanation text to score.
+        evaluation_spec: Dict with components/performance levels/instructions.
+        lang: "en" or "he"
+        topic_config: Optional topic config for topic naming context.
+
+    Returns:
+        List of message dicts ready for LLM.
+    """
+    lang_instruction = LANGUAGE_INSTRUCTION.get(lang, LANGUAGE_INSTRUCTION["en"])
+    components = evaluation_spec.get("components", [])
+    component_lines = "\n".join(
+        f"- {c.get('key', '')}: {c.get('label', '')} | {c.get('description', '')}"
+        for c in components
+    )
+
+    levels = evaluation_spec.get("performance_levels", [])
+    levels_lines = "\n".join(
+        f"- {lvl.get('name', '')}: {lvl.get('min_score', 0)}-{lvl.get('max_score', 0)}"
+        for lvl in levels
+    )
+
+    instructions = evaluation_spec.get("llm_instructions", "")
+    if isinstance(instructions, list):
+        instructions_text = "\n".join(f"- {item}" for item in instructions)
+    else:
+        instructions_text = str(instructions)
+
+    topic_name = (
+        evaluation_spec.get("topic_name")
+        or (topic_config.get_topic_name(lang) if topic_config else "")
+        or "the given topic"
+    )
+
+    component_keys = [c.get("key", "") for c in components if c.get("key")]
+    output_shape = ",\n  ".join(f"\"{key}\": 0" for key in component_keys)
+
+    prompt = f"""Evaluate this student explanation for topic: {topic_name}
+
+Scoring scale per component:
+0 = not mentioned or incorrect
+1 = partially mentioned or unclear
+2 = clearly stated and correct
+
+Components:
+{component_lines}
+
+Performance levels:
+{levels_lines}
+
+Additional instructions:
+{instructions_text}
+
+Return ONLY valid JSON in this exact structure (no markdown, no extra keys):
+{{
+  "component_scores": {{
+  {output_shape}
+  }},
+  "misconceptions_count": 0,
+  "notes": "short rationale"
+}}
+
+Student explanation:
+{explanation}
+"""
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are an objective evaluator of conceptual understanding. "
+                + lang_instruction
+                + " Output must be JSON only."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+
 # Quick test
 if __name__ == "__main__":
     logger.info("Testing prompt templates (generic version)...")

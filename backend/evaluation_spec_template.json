@@ -1,0 +1,250 @@
+{
+  "version": "1.0",
+  "purpose": "Topic-agnostic evaluation of student explanations with component scoring, performance levels, mentor feedback, and improvement tracking.",
+  "topic": {
+    "title": "REPLACE_ME (e.g., Newton's First Law / Supply & Demand / Bubble Sort / Photosynthesis)",
+    "domain": "REPLACE_ME (e.g., physics / economics / computer_science / history)",
+    "difficulty": "REPLACE_ME (intro / intermediate / advanced)",
+    "source_truth_summary": "REPLACE_ME: concise truth reference (what a correct explanation must include)."
+  },
+  "scoring": {
+    "point_scale": {
+      "0": "Missing, incorrect, or contradicts the truth.",
+      "1": "Mentioned but incomplete, vague, partially correct, or weakly connected.",
+      "2": "Clear, accurate, and well integrated into the explanation."
+    },
+    "default_max_points_per_component": 2,
+    "aggregation": {
+      "method": "weighted_sum",
+      "rounding": "none"
+    }
+  },
+  "performance_levels": [
+    {
+      "id": "L1",
+      "label": "Limited Understanding",
+      "min_score_inclusive": 0,
+      "max_score_inclusive": 4.06,
+      "interpretation": "Fragmented or incorrect understanding; key conditions/mechanisms missing."
+    },
+    {
+      "id": "L2",
+      "label": "Developing Understanding",
+      "min_score_inclusive": 4.069999999999999,
+      "max_score_inclusive": 8.96,
+      "interpretation": "Partial understanding; core idea present but lacks precision or structure."
+    },
+    {
+      "id": "L3",
+      "label": "Strong Understanding",
+      "min_score_inclusive": 8.97,
+      "max_score_inclusive": 14.0,
+      "interpretation": "Integrated and accurate explanation; clear logic, examples, and misconception correction."
+    }
+  ],
+  "components": [
+    {
+      "id": "core_statement",
+      "name": "Core Statement",
+      "description": "The main definition/claim in a clear sentence.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 1,
+      "evaluation_question": "Did the student clearly state the main idea correctly?",
+      "observable_indicators": [
+        "Accurate statement of the central claim/definition in plain language."
+      ],
+      "detection_hints": {
+        "keywords": [],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Can you state the main idea in one clear sentence?",
+        "if_partial": "Your main statement is close\u2014make it more precise and complete."
+      }
+    },
+    {
+      "id": "formal_form",
+      "name": "Formal / Precise Form",
+      "description": "Equation, theorem statement, algorithm/pseudocode, or a precise rule.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 2,
+      "evaluation_question": "Did the student include a precise/formal form (when appropriate)?",
+      "observable_indicators": [
+        "Uses a formal definition, equation, rule, or pseudocode consistent with the truth."
+      ],
+      "detection_hints": {
+        "keywords": [],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Can you add the formal/precise form (equation/rule/definition) that matches this idea?",
+        "if_partial": "You referenced the formal rule, but it\u2019s not fully correct\u2014please rewrite it precisely."
+      }
+    },
+    {
+      "id": "conditions",
+      "name": "Necessary Conditions / Assumptions",
+      "description": "Conditions under which the statement holds (constraints/assumptions).",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 3,
+      "evaluation_question": "Did the student state the key assumptions/conditions?",
+      "observable_indicators": [
+        "Explicitly names assumptions or constraints (e.g., 'only when...', 'assuming...', 'if...')."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "if",
+          "assuming",
+          "only when",
+          "given that"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "What conditions or assumptions must be true for your statement to hold?",
+        "if_partial": "You hinted at conditions\u2014state them explicitly and clearly."
+      }
+    },
+    {
+      "id": "mechanism",
+      "name": "Mechanism / Cause\u2013Effect / Logic",
+      "description": "Explains why/how: causal chain, logical implication, or mechanism.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 4,
+      "evaluation_question": "Did the student explain the mechanism or logic (not only the outcome)?",
+      "observable_indicators": [
+        "Uses causal or logical structure (e.g., 'because', 'therefore', 'if...then...')."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "because",
+          "therefore",
+          "so",
+          "if",
+          "then"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Explain *why* it works\u2014use a clear 'because' or 'if\u2013then' structure.",
+        "if_partial": "Your logic is partly there\u2014make the cause\u2013effect chain explicit and correct."
+      }
+    },
+    {
+      "id": "distinctions",
+      "name": "Conceptual Distinctions",
+      "description": "Distinguishes related concepts that students often confuse.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 5,
+      "evaluation_question": "Did the student distinguish this concept from common confusions?",
+      "observable_indicators": [
+        "Explicitly contrasts two nearby concepts and states the difference accurately."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "not",
+          "different from",
+          "vs",
+          "versus"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "What is a common thing people confuse this with, and how is it different?",
+        "if_partial": "You started a distinction\u2014finish it with a clear, correct contrast."
+      }
+    },
+    {
+      "id": "example",
+      "name": "Example / Application",
+      "description": "A concrete example that matches the statement and conditions.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 6,
+      "evaluation_question": "Did the student provide a relevant example that supports the explanation?",
+      "observable_indicators": [
+        "Includes a concrete scenario and explicitly connects it to the concept."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "for example",
+          "e.g.",
+          "such as"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Give one concrete example and explain how it fits the idea.",
+        "if_partial": "Your example is close\u2014connect it explicitly to the main idea and conditions."
+      }
+    },
+    {
+      "id": "misconceptions",
+      "name": "Misconception Handling",
+      "description": "Identifies and corrects a common misconception.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 7,
+      "evaluation_question": "Did the student address a common misconception and correct it?",
+      "observable_indicators": [
+        "Names a typical wrong belief and explains why it is wrong."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "many people think",
+          "common misconception",
+          "but that's wrong",
+          "actually"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "What is a common misconception here, and why is it wrong?",
+        "if_partial": "You mentioned a misconception\u2014explain clearly why it\u2019s incorrect."
+      }
+    }
+  ],
+  "mentor_policy": {
+    "max_targets_per_round": 2,
+    "selection_rules": [
+      "Prefer components scored 0 over components scored 1.",
+      "If ties, pick lower `priority` number first.",
+      "Do not target components already scored 2."
+    ],
+    "response_template": {
+      "positive_reinforcement": "One short sentence about what was correct.",
+      "targets": [
+        {
+          "type": "correction_or_prompt",
+          "content": "Targeted guidance based on the specific missing/weak component."
+        }
+      ],
+      "rewrite_request": "Please rewrite your explanation in 3\u20135 structured sentences addressing the points above."
+    }
+  },
+  "improvement": {
+    "metrics": [
+      {
+        "id": "delta_total_score",
+        "definition": "total_score_after - total_score_before"
+      },
+      {
+        "id": "components_improved",
+        "definition": "count of components where score_after > score_before"
+      },
+      {
+        "id": "coverage_rate",
+        "definition": "count(score>=1)/num_components"
+      },
+      {
+        "id": "misconception_reduction",
+        "definition": "misconceptions score increases to 2 or improves by at least 1"
+      }
+    ]
+  }
+}

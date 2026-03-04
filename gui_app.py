@@ -295,7 +295,10 @@ class ChatbotGUI:
         elif self.current_screen == "chat":
             self._update_chat_labels()
         elif self.current_screen == "evaluation":
-            self._populate_evaluation_screen(getattr(self, '_last_evaluation', ''))
+            last_eval = getattr(self, "_last_evaluation_data", None)
+            if last_eval is None:
+                last_eval = getattr(self, "_last_evaluation", "")
+            self._populate_evaluation_screen(last_eval)
 
     # ================================================================
     # RTL / LTR DIRECTION SUPPORT
@@ -656,7 +659,8 @@ class ChatbotGUI:
                 self.root.after(0, lambda: self._on_topic_generated(cfg))
             except Exception as e:
                 if not self._generation_cancelled:
-                    self.root.after(0, lambda: self._on_generation_error(str(e)))
+                    err_msg = str(e)
+                    self.root.after(0, lambda msg=err_msg: self._on_generation_error(msg))
 
         threading.Thread(target=generate, daemon=True).start()
 
@@ -1368,7 +1372,8 @@ class ChatbotGUI:
                 response = self.manager.send_to_student(text)
                 self.root.after(0, lambda: self._on_student_response(response))
             except Exception as e:
-                self.root.after(0, lambda: self._on_api_error(str(e)))
+                err_msg = str(e)
+                self.root.after(0, lambda msg=err_msg: self._on_api_error(msg))
 
         threading.Thread(target=api_call, daemon=True).start()
 
@@ -1427,7 +1432,8 @@ class ChatbotGUI:
                 advice = self.manager.consult_mentor(last_teacher_msg, last_student_msg)
                 self.root.after(0, lambda: self._on_mentor_response(advice))
             except Exception as e:
-                self.root.after(0, lambda: self._on_mentor_error(str(e)))
+                err_msg = str(e)
+                self.root.after(0, lambda msg=err_msg: self._on_mentor_error(msg))
 
         threading.Thread(target=api_call, daemon=True).start()
 
@@ -1470,11 +1476,12 @@ class ChatbotGUI:
                 evaluation = self.manager.evaluate_performance()
                 self.root.after(0, lambda: self._on_evaluation_result(evaluation))
             except Exception as e:
-                self.root.after(0, lambda: self._on_evaluation_error(str(e)))
+                err_msg = str(e)
+                self.root.after(0, lambda msg=err_msg: self._on_evaluation_error(msg))
 
         threading.Thread(target=api_call, daemon=True).start()
 
-    def _on_evaluation_result(self, evaluation: str):
+    def _on_evaluation_result(self, evaluation):
         """Handle evaluation result — show on evaluation screen."""
         self.chat_progress.hide()
         self.is_processing = False
@@ -1699,7 +1706,60 @@ class ChatbotGUI:
             [self.eval_retry_btn, self.eval_new_btn, self.eval_save_btn]
         )
 
-    def _populate_evaluation_screen(self, evaluation_text: str):
+    def _format_component_label(self, key: str) -> str:
+        """Turn component keys into readable labels for display."""
+        return key.replace("_", " ").title()
+
+    def _format_evaluation_text(self, evaluation_result) -> str:
+        """Format structured evaluation data into readable text for UI/save."""
+        if isinstance(evaluation_result, str):
+            return evaluation_result
+        if not isinstance(evaluation_result, dict):
+            return "No evaluation available."
+
+        lines = []
+        total = evaluation_result.get("total_score", 0)
+        max_score = evaluation_result.get("max_score", 0)
+        level = evaluation_result.get("performance_level", "Unclassified")
+        lines.append(f"Total Score: {total}/{max_score}")
+        lines.append(f"Performance Level: {level}")
+        lines.append("")
+        lines.append("Component Scores:")
+
+        component_scores = evaluation_result.get("component_scores", {})
+        if isinstance(component_scores, dict) and component_scores:
+            for key, value in component_scores.items():
+                lines.append(f"- {self._format_component_label(key)}: {value}/2")
+        else:
+            lines.append("- No component scores available")
+
+        lines.append("")
+        lines.append(f"Correct Components: {evaluation_result.get('components_correct_count', 0)}")
+        lines.append(f"Misconceptions Count: {evaluation_result.get('misconceptions_count', 0)}")
+
+        comparison = evaluation_result.get("comparison", {})
+        if isinstance(comparison, dict):
+            lines.append("")
+            lines.append("Improvement Analysis:")
+            improvement = comparison.get("improvement")
+            if isinstance(improvement, dict):
+                lines.append(f"- Score Delta: {improvement.get('score_delta', 0)}")
+                lines.append(
+                    f"- Correct Components Delta: {improvement.get('correct_components_delta', 0)}"
+                )
+                lines.append(f"- Misconceptions Delta: {improvement.get('misconceptions_delta', 0)}")
+            else:
+                reason = comparison.get("reason") or "Not enough data for comparison."
+                lines.append(f"- {reason}")
+
+        notes = evaluation_result.get("notes", "")
+        if notes:
+            lines.append("")
+            lines.append(f"Notes: {notes}")
+
+        return "\n".join(lines)
+
+    def _populate_evaluation_screen(self, evaluation_result):
         """Fill the evaluation screen with results."""
         # Update title
         if self.lang == "he":
@@ -1734,6 +1794,7 @@ class ChatbotGUI:
 
         heading = f"{RLM}📋 תוצאות הערכה\n\n" if self.lang == "he" else "📋 Evaluation Results\n\n"
         self.eval_display.insert(tk.END, heading, "heading")
+        evaluation_text = self._format_evaluation_text(evaluation_result)
         self.eval_display.insert(tk.END, evaluation_text + "\n", "feedback")
 
         self.eval_display.config(state=tk.DISABLED)
@@ -1742,6 +1803,7 @@ class ChatbotGUI:
         self._apply_direction()
 
         # Store for saving
+        self._last_evaluation_data = evaluation_result
         self._last_evaluation = evaluation_text
 
     def _on_eval_retry(self):
@@ -1780,6 +1842,11 @@ class ChatbotGUI:
                 f.write("EVALUATION:\n\n")
                 f.write(getattr(self, '_last_evaluation', 'No evaluation available.'))
                 f.write("\n\n" + "-" * 60 + "\n\n")
+                last_eval_data = getattr(self, "_last_evaluation_data", None)
+                if isinstance(last_eval_data, dict):
+                    f.write("STRUCTURED EVALUATION JSON:\n\n")
+                    f.write(json.dumps(last_eval_data, ensure_ascii=False, indent=2))
+                    f.write("\n\n" + "-" * 60 + "\n\n")
 
                 # Save conversation transcript
                 if self.manager:
