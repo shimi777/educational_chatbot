@@ -136,7 +136,9 @@ IMPORTANT RULES:
 1. ALL content must be specific to the topic from the learning material
 2. The struggling student's confusions must reflect REAL misconceptions about THIS topic
 3. Examples must be relevant to THIS specific subject
-4. Return ONLY valid JSON — no markdown, no text before or after the JSON"""
+4. Return ONLY valid JSON — no markdown, no text before or after the JSON
+5. ALL JSON values MUST be written in ENGLISH — even if the learning material is in Hebrew or another language
+6. Do NOT translate the material's language into the output — output English regardless of input language"""
 
 
 HEBREW_TRANSLATION_PROMPT = """You are a bilingual educational content specialist (English-Hebrew).
@@ -328,7 +330,15 @@ class TopicGenerator:
         )
 
         messages = [
-            {"role": "system", "content": "You are an expert educational content designer. Return ONLY valid JSON."},
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert educational content designer. "
+                    "Return ONLY valid JSON. "
+                    "CRITICAL: ALL JSON values MUST be in English, "
+                    "regardless of the language of the input material."
+                ),
+            },
             {"role": "user", "content": prompt}
         ]
 
@@ -339,6 +349,32 @@ class TopicGenerator:
         )
 
         raw_data = self._parse_json_response(response, "English generation")
+
+        # Guard: if the LLM returned Hebrew text despite instructions, retry with
+        # a stricter prompt rather than failing with a confusing JSON error.
+        topic_name_val = raw_data.get("topic_name", "")
+        if topic_name_val and any("\u0590" <= ch <= "\u05FF" for ch in topic_name_val):
+            logger.warning(
+                "English generation returned Hebrew text — retrying with stricter prompt"
+            )
+            strict_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert educational content designer. "
+                        "Return ONLY valid JSON with ALL values in ENGLISH. "
+                        "The input material may be in Hebrew, but your output must be English only. "
+                        "Do not write any Hebrew characters in your response."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ]
+            response = self.llm.chat(
+                messages=strict_messages,
+                temperature=0.2,
+                max_tokens=4000,
+            )
+            raw_data = self._parse_json_response(response, "English generation (retry)")
 
         try:
             validated = TopicGenerationResponse(**raw_data)
