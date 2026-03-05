@@ -18,7 +18,16 @@ logger = get_logger(__name__)
 
 LANGUAGE_INSTRUCTION = {
     "en": "You MUST respond in English only.",
-    "he": "You MUST respond in Hebrew (עברית) only. Use Hebrew script for your entire response."
+    "he": (
+        "You MUST respond in Hebrew (עברית) only. Use Hebrew script for your entire response.\n"
+        "Hebrew quality rules:\n"
+        "- Write clear, fluent Hebrew — short sentences, natural word order.\n"
+        "- Do NOT transliterate English words into Hebrew letters. Use the accepted Hebrew term, "
+        "or keep the English word in Latin characters with parentheses.\n"
+        "- Avoid awkward literal translations from English.\n"
+        "- Do NOT use profanity, slang, or offensive language under any circumstances.\n"
+        "- Your tone should be warm, respectful, and age-appropriate."
+    ),
 }
 
 

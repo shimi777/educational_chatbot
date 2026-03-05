@@ -153,7 +153,10 @@ Translate ALL fields to Hebrew. Rules:
 3. The struggling student should speak like an Israeli {target_age}-year-old
 4. Technical terms: use accepted Hebrew translations, add English in parentheses if the Hebrew term is uncommon
 5. Return ONLY valid JSON with the EXACT same structure, all values in Hebrew
-6. Keep the same keys (in English), only translate the values"""
+6. Keep the same keys (in English), only translate the values
+7. Write fluent, natural Hebrew — avoid awkward literal translations from English
+8. Use short, clear sentences appropriate for the target age
+9. Do NOT use profanity, slang, or offensive language"""
 
 
 # ============================================================================

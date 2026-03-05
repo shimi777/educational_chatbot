@@ -24,6 +24,7 @@ from backend.prompts import (
     get_single_explanation_evaluation_messages,
     get_prompts_for_language,
 )
+from backend.response_validator import sanitize_response
 
 logger = get_logger(__name__)
 
@@ -130,6 +131,7 @@ class ConversationManager:
             temperature=0.7,
             max_tokens=300
         )
+        student_response = sanitize_response(student_response, self.lang)
 
         # Add student's response to history
         self.student_history.append({
@@ -164,6 +166,7 @@ class ConversationManager:
             temperature=0.5,
             max_tokens=200
         )
+        mentor_response = sanitize_response(mentor_response, self.lang)
 
         self.mentor_history.append({
             "explanation": teacher_explanation,
@@ -334,6 +337,7 @@ class ConversationManager:
             temperature=0.0,
             max_tokens=500,
         )
+        raw_text = sanitize_response(raw_text, self.lang)
         raw_json = self._parse_json_response(raw_text)
         normalized = self._normalize_component_scores(raw_json, spec)
         total_score = sum(normalized["component_scores"].values())
