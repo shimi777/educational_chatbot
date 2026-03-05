@@ -18,6 +18,7 @@ import sys
 import os
 import tkinter as tk
 from tkinter import scrolledtext, filedialog, messagebox, ttk
+import tkinter.font as tkfont
 import threading
 import json
 
@@ -50,6 +51,91 @@ COLORS = {
     "timer_red": "#e74c3c",
 }
 
+THEMES = {
+    "light": {
+        # App surfaces
+        "app_bg": "#F6F8FC",
+        "panel_bg": "#FFFFFF",
+        "fg": "#0F172A",
+        "muted_fg": "#475569",
+        "border": "#E2E8F0",
+        "focus": "#2563EB",
+
+        # Top bar
+        "topbar_bg": "#0F172A",
+        "topbar_fg": "#F8FAFC",
+        "topbar_btn_bg": "#1F2937",
+        "topbar_btn_active_bg": "#334155",
+        "topbar_btn_fg": "#F8FAFC",
+
+        # Text / inputs
+        "text_bg": "#FFFFFF",
+        "text_fg": "#0F172A",
+        "input_bg": "#FFFFFF",
+        "input_fg": "#0F172A",
+        "selection_bg": "#DBEAFE",
+
+        # Buttons (semantic)
+        "btn_primary_bg": "#2563EB",
+        "btn_primary_hover_bg": "#1D4ED8",
+        "btn_primary_fg": "#FFFFFF",
+
+        "btn_secondary_bg": "#E2E8F0",
+        "btn_secondary_hover_bg": "#CBD5E1",
+        "btn_secondary_fg": "#0F172A",
+
+        "btn_destructive_bg": "#DC2626",
+        "btn_destructive_hover_bg": "#B91C1C",
+        "btn_destructive_fg": "#FFFFFF",
+
+        # Scrollbars
+        "scroll_trough": "#E2E8F0",
+        "scroll_thumb": "#94A3B8",
+        "scroll_thumb_hover": "#64748B",
+    },
+
+    "dark": {
+        # App surfaces
+        "app_bg": "#0B1220",
+        "panel_bg": "#111827",
+        "fg": "#E5E7EB",
+        "muted_fg": "#94A3B8",
+        "border": "#334155",
+        "focus": "#60A5FA",
+
+        # Top bar
+        "topbar_bg": "#0F172A",
+        "topbar_fg": "#F8FAFC",
+        "topbar_btn_bg": "#1F2937",
+        "topbar_btn_active_bg": "#334155",
+        "topbar_btn_fg": "#F8FAFC",
+
+        # Text / inputs
+        "text_bg": "#0B1220",
+        "text_fg": "#E5E7EB",
+        "input_bg": "#0B1220",
+        "input_fg": "#E5E7EB",
+        "selection_bg": "#1D4ED8",
+
+        # Buttons (semantic)
+        "btn_primary_bg": "#60A5FA",
+        "btn_primary_hover_bg": "#3B82F6",
+        "btn_primary_fg": "#0B1220",
+
+        "btn_secondary_bg": "#1F2937",
+        "btn_secondary_hover_bg": "#334155",
+        "btn_secondary_fg": "#E5E7EB",
+
+        "btn_destructive_bg": "#F87171",
+        "btn_destructive_hover_bg": "#EF4444",
+        "btn_destructive_fg": "#0B1220",
+
+        # Scrollbars
+        "scroll_trough": "#0F172A",
+        "scroll_thumb": "#334155",
+        "scroll_thumb_hover": "#475569",
+    },
+}
 # Unicode bidi marks for mixed Hebrew/English text
 RLM = "\u200F"  # Right-to-Left Mark
 LRM = "\u200E"  # Left-to-Right Mark
@@ -128,6 +214,7 @@ class AnimatedStatusBar:
                 command=self._handle_cancel,
             )
             self._cancel_btn.pack(side=tk.RIGHT, padx=4, pady=2)
+            self._cancel_btn._btn_role = "topbar"
 
     # ------------------------------------------------------------------
     # Public API
@@ -224,6 +311,40 @@ class ChatbotGUI:
         self._dir_btn_frames = []  # [(frame, [btn1, btn2, ...], special_right_btn_or_None), ...]
         self._dir_top_bars = []    # [(lang_btn, timer_label_or_None), ...]
 
+        # ---------------- Theme (Light/Dark) ----------------
+        self.theme_name = "light"  # default
+        self.theme_btn_text_var = tk.StringVar()
+        self._theme_top_bars = []  # store refs to top bars widgets for styling
+        self._update_theme_button_text()
+        self._ttk_style = ttk.Style(self.root)
+
+        self._hover_btn = None
+        self.root.bind_all("<Motion>", self._hover_watchdog, add="+")
+        self.root.bind_all("<ButtonRelease-1>", self._hover_watchdog, add="+")
+
+        # --- Typography: make UI look like a product (best-effort) ---
+        self._font_family = "Segoe UI"
+        self._font_body_size = 10
+        self._font_h1 = (self._font_family, 14, "bold")
+        self._font_h2 = (self._font_family, 12, "bold")
+        self._font_btn = (self._font_family, 10, "bold")
+        self._font_small_btn = (self._font_family, 9, "bold")
+
+        # Apply default fonts globally (some widgets still have explicit fonts; we will coerce them in theme pass too).
+        try:
+            for name in (
+                "TkDefaultFont", "TkTextFont", "TkFixedFont", "TkMenuFont",
+                "TkHeadingFont", "TkCaptionFont", "TkSmallCaptionFont",
+                "TkIconFont", "TkTooltipFont"
+            ):
+                try:
+                    tkfont.nametofont(name).configure(family=self._font_family, size=self._font_body_size)
+                except Exception:
+                    pass
+            self.root.option_add("*Font", f"{{{self._font_family}}} {self._font_body_size}")
+        except Exception:
+            pass
+
         self._build_setup_screen()
         self._build_settings_screen()
         self._build_lesson_screen()
@@ -232,7 +353,331 @@ class ChatbotGUI:
 
         self._show_screen("setup")
         self._apply_direction()
+        self._apply_theme()
 
+    def _apply_text_tag_theme(self, th):
+        is_dark = (self.theme_name == "dark")
+
+        # Subtle, professional accents
+        accent_blue = "#2563EB" if not is_dark else "#60A5FA"
+        accent_green = "#15803D" if not is_dark else "#34D399"
+        accent_purple = "#6D28D9" if not is_dark else "#C4B5FD"
+        danger = "#B91C1C" if not is_dark else "#F87171"
+        warning = "#B45309" if not is_dark else "#FDBA74"
+
+        # Lesson screen tags
+        if hasattr(self, "lesson_display"):
+            try:
+                self.lesson_display.tag_configure("heading", foreground=accent_blue)
+                self.lesson_display.tag_configure("item", foreground=th["fg"])
+                self.lesson_display.tag_configure("warning", foreground=warning)
+            except Exception:
+                pass
+
+        # Chat screen tags
+        if hasattr(self, "chat_display"):
+            try:
+                self.chat_display.tag_configure("student", foreground=accent_blue)
+                self.chat_display.tag_configure("teacher", foreground=accent_green)
+                self.chat_display.tag_configure("label_student", foreground=accent_blue)
+                self.chat_display.tag_configure("label_teacher", foreground=accent_green)
+                self.chat_display.tag_configure("system", foreground=th["muted_fg"])
+                self.chat_display.tag_configure("time_up", foreground=danger)
+            except Exception:
+                pass
+
+        # Mentor panel tags
+        if hasattr(self, "mentor_panel"):
+            try:
+                self.mentor_panel.tag_configure("mentor", foreground=warning)
+                self.mentor_panel.tag_configure("summary", foreground=accent_purple)
+                self.mentor_panel.tag_configure("error", foreground=danger)
+            except Exception:
+                pass
+
+        # Evaluation screen tags
+        if hasattr(self, "eval_display"):
+            try:
+                self.eval_display.tag_configure("heading", foreground=accent_purple)
+                self.eval_display.tag_configure("score", foreground=accent_green)
+                self.eval_display.tag_configure("feedback", foreground=th["fg"])
+            except Exception:
+                pass
+
+    def _hover_watchdog(self, event=None):
+        """
+        Fix for Windows Tk: sometimes <Leave> doesn't fire and button keeps hover color.
+        On any mouse motion / release we verify cursor is still inside the last-hovered button.
+        """
+        b = getattr(self, "_hover_btn", None)
+        if not b:
+            return
+
+        try:
+            if not b.winfo_exists():
+                self._hover_btn = None
+                return
+
+            x = self.root.winfo_pointerx()
+            y = self.root.winfo_pointery()
+
+            bx = b.winfo_rootx()
+            by = b.winfo_rooty()
+            bw = b.winfo_width()
+            bh = b.winfo_height()
+
+            inside = (bx <= x < bx + bw) and (by <= y < by + bh)
+
+            if not inside:
+                # force reset to normal
+                try:
+                    b.configure(bg=b._ui_bg_normal, activebackground=b._ui_bg_normal)
+                except Exception:
+                    pass
+                self._hover_btn = None
+        except Exception:
+            # don't crash UI because of theming helpers
+            self._hover_btn = None
+
+    def _coerce_font_family(self, widget):
+        """Force Segoe UI across the app while preserving size/weight (best-effort)."""
+        try:
+            if getattr(widget, "_skip_theme_font", False):
+                return
+
+            f = widget.cget("font")
+            if not f:
+                return
+
+            # Tuple font: ("Arial", 10, "bold") -> ("Segoe UI", 10, "bold")
+            if isinstance(f, tuple) and len(f) >= 2:
+                if str(f[0]) != self._font_family:
+                    widget.configure(font=(self._font_family, *f[1:]))
+
+            # String font name or "Arial 10": use tkfont to reconfigure
+            else:
+                try:
+                    fo = tkfont.Font(font=f)
+                    fo.configure(family=self._font_family)
+                    widget.configure(font=fo)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _infer_button_role(self, btn: tk.Button) -> str:
+        """
+        Infer a semantic role from the original hardcoded color.
+        We cache the role on the widget so theme switching stays consistent.
+        """
+        try:
+            # Topbar buttons are themed explicitly in _apply_theme()
+            if getattr(btn, "_btn_role", None) == "topbar":
+                return "topbar"
+
+            bg = str(btn.cget("bg")).lower()
+
+            # Primary actions were historically green/pink in this UI
+            if bg == str(COLORS.get("green_btn", "")).lower() or bg == str(COLORS.get("pink_btn", "")).lower():
+                return "primary"
+
+            # Most utility actions were purple/blue/orange/gray -> treat as secondary for a clean product look
+            if bg in (
+                str(COLORS.get("purple_btn", "")).lower(),
+                str(COLORS.get("blue_btn", "")).lower(),
+                str(COLORS.get("orange_btn", "")).lower(),
+                str(COLORS.get("gray_btn", "")).lower(),
+            ):
+                return "secondary"
+
+            return "secondary"
+        except Exception:
+            return "secondary"
+
+    def _style_button(self, btn: tk.Button, th: dict, role: str):
+        """Apply a clean, unified button style with hover states (Tk best-effort)."""
+        if role == "topbar":
+            return
+
+        if role == "destructive":
+            bg = th["btn_destructive_bg"]
+            hover = th["btn_destructive_hover_bg"]
+            fg = th["btn_destructive_fg"]
+            border = th["btn_destructive_bg"]
+        elif role == "primary":
+            bg = th["btn_primary_bg"]
+            hover = th["btn_primary_hover_bg"]
+            fg = th["btn_primary_fg"]
+            border = th["btn_primary_bg"]
+        else:
+            bg = th["btn_secondary_bg"]
+            hover = th["btn_secondary_hover_bg"]
+            fg = th["btn_secondary_fg"]
+            border = th["border"]
+
+        try:
+            btn.configure(
+                bg=bg,
+                fg=fg,
+                activebackground=bg,
+                activeforeground=fg,
+                relief=tk.FLAT,
+                bd=0,
+                padx=12,
+                pady=6,
+                cursor="hand2",
+                highlightthickness=1,
+                highlightbackground=border,
+                highlightcolor=th["focus"],
+            )
+        except Exception:
+            pass
+
+        # Hover bindings (bind once; update cached colors on every theme switch)
+        try:
+            btn._ui_bg_normal = bg
+            btn._ui_bg_hover = hover
+
+            def _reset_bg(b):
+                # Always restore normal bg/activebackground (Windows can "stick" active colors in light theme)
+                try:
+                    b.configure(bg=b._ui_bg_normal, activebackground=b._ui_bg_normal)
+                except Exception:
+                    pass
+
+                # if this was the hovered button, clear it
+                if getattr(self, "_hover_btn", None) == b:
+                    self._hover_btn = None
+
+            if not getattr(btn, "_ui_hover_bound", False):
+                def _on_enter(_e, b=btn):
+                    try:
+                        b.configure(bg=b._ui_bg_hover, activebackground=b._ui_bg_hover)
+                    except Exception:
+                        pass
+                    self._hover_btn = b
+
+                def _on_leave(_e, b=btn):
+                    _reset_bg(b)
+
+                def _on_release(_e, b=btn):
+                    _reset_bg(b)
+
+                def _on_focus_out(_e, b=btn):
+                    _reset_bg(b)
+
+                btn.bind("<Enter>", _on_enter)
+                btn.bind("<Leave>", _on_leave)
+                btn.bind("<ButtonRelease-1>", _on_release)
+                btn.bind("<FocusOut>", _on_focus_out)
+
+                btn._ui_hover_bound = True
+        except Exception:
+            pass
+
+    def _style_topbar_button(self, btn: tk.Button, th: dict):
+        """Topbar button styling with robust hover reset (prevents 'hover stuck' on Windows light theme)."""
+        try:
+            normal = th["topbar_btn_bg"]
+            hover = th["topbar_btn_active_bg"]
+            fg = th["topbar_btn_fg"]
+
+            # Base style: IMPORTANT -> keep activebackground == normal to prevent Windows sticky active state.
+            btn.configure(
+                bg=normal,
+                fg=fg,
+                activebackground=normal,
+                activeforeground=fg,
+                relief=tk.FLAT,
+                bd=0,
+                cursor="hand2",
+                highlightthickness=0,
+            )
+
+            # Cache colors for handlers
+            btn._ui_bg_normal = normal
+            btn._ui_bg_hover = hover
+
+            def _reset_bg(b):
+                # Always restore normal bg/activebackground (Windows can "stick" active colors in light theme)
+                try:
+                    b.configure(bg=b._ui_bg_normal, activebackground=b._ui_bg_normal)
+                except Exception:
+                    pass
+
+            if not getattr(btn, "_ui_hover_bound_topbar", False):
+
+                def _on_enter(_e, b=btn):
+                    try:
+                        b.configure(bg=b._ui_bg_hover, activebackground=b._ui_bg_hover)
+                    except Exception:
+                        pass
+
+                def _on_leave(_e, b=btn):
+                    _reset_bg(b)
+
+                def _on_release(_e, b=btn):
+                    _reset_bg(b)
+
+                def _on_focus_out(_e, b=btn):
+                    _reset_bg(b)
+
+                btn.bind("<Enter>", _on_enter)
+                btn.bind("<Leave>", _on_leave)
+                btn.bind("<ButtonRelease-1>", _on_release)
+                btn.bind("<FocusOut>", _on_focus_out)
+
+                btn._ui_hover_bound_topbar = True
+
+        except Exception:
+            pass
+
+    def _style_scrollbar(self, sb, th: dict):
+        """Force scrollbar colors (some platforms ignore some options)."""
+        try:
+            sb.configure(
+                bg=th["scroll_thumb"],
+                troughcolor=th["scroll_trough"],
+                activebackground=th["scroll_thumb_hover"],
+                highlightbackground=th["scroll_trough"],
+                highlightcolor=th["scroll_trough"],
+                relief=tk.FLAT,
+                bd=0,
+                width=12,
+            )
+        except Exception:
+            pass
+
+    def _theme_scrolledtext_scrollbars(self, th: dict):
+        """
+        ScrolledText sometimes keeps a white scrollbar on Windows/theme combinations.
+        Force-style known ScrolledText widgets (and their internal scrollbars).
+        """
+        candidates = []
+        for name in ("material_input", "lesson_display", "chat_display", "mentor_panel", "eval_display"):
+            w = getattr(self, name, None)
+            if w is not None:
+                candidates.append(w)
+
+        for w in candidates:
+            # Known attributes in tkinter.scrolledtext.ScrolledText
+            for attr in ("vbar", "hbar"):
+                sb = getattr(w, attr, None)
+                if sb is not None:
+                    self._style_scrollbar(sb, th)
+
+            # Also walk children just in case
+            try:
+                for ch in w.winfo_children():
+                    if isinstance(ch, tk.Scrollbar):
+                        self._style_scrollbar(ch, th)
+                    elif isinstance(ch, ttk.Scrollbar):
+                        try:
+                            ch.configure(style=getattr(self, "_ttk_scrollbar_style", "TScrollbar"))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     # ================================================================
     # SCREEN MANAGEMENT
     # ================================================================
@@ -244,31 +689,76 @@ class ChatbotGUI:
         self.current_screen = name
 
     def _make_top_bar(self, parent, title_var=None, timer_var=None):
-        """Create a consistent top bar with language toggle, title, optional timer."""
+        """Create a consistent top bar with language toggle, theme toggle, title, optional timer."""
         bar = tk.Frame(parent, bg=COLORS["dark_bg"], pady=6)
+
+        # Layout: [timer] [title expands] [theme] [language]  (RTL)
+        # Layout: [language] [title expands] [theme] [timer]  (LTR)
         bar.columnconfigure(1, weight=1)
 
         lang_var = tk.StringVar(value="English" if self.lang == "en" else "עברית")
         lang_btn = tk.Button(
-            bar, textvariable=lang_var, font=("Arial", 9, "bold"),
-            bg=COLORS["blue_btn"], fg="white", width=10,
-            command=lambda: self._toggle_language(lang_var)
+            bar,
+            textvariable=lang_var,
+            font=("Segoe UI", 9, "bold"),
+            bg=COLORS["blue_btn"],
+            fg="white",
+            width=10,
+            command=lambda: self._toggle_language(lang_var),
         )
+        # Semantic role for theming (topbar buttons are styled separately)
+        lang_btn._btn_role = "topbar"
         lang_btn.grid(row=0, column=0, padx=10)
 
+        title_lbl = None
         if title_var:
-            tk.Label(bar, textvariable=title_var, font=("Arial", 13, "bold"),
-                     fg="white", bg=COLORS["dark_bg"]).grid(row=0, column=1)
+            title_lbl = tk.Label(
+                bar,
+                textvariable=title_var,
+                font=self._font_h2,
+                fg="white",
+                bg=COLORS["dark_bg"],
+            )
+            title_lbl.grid(row=0, column=1)
+
+        theme_btn = tk.Button(
+            bar,
+            textvariable=self.theme_btn_text_var,
+            font=self._font_small_btn,
+            bg=COLORS["gray_btn"],
+            fg="white",
+            width=10,
+            command=self._toggle_theme,
+        )
+        theme_btn._btn_role = "topbar"
+        theme_btn.grid(row=0, column=2, padx=10)
 
         timer_label = None
         if timer_var:
-            timer_label = tk.Label(bar, textvariable=timer_var,
-                                   font=("Consolas", 14, "bold"),
-                                   fg=COLORS["timer_green"], bg=COLORS["dark_bg"], width=6)
-            timer_label.grid(row=0, column=2, padx=10)
+            timer_label = tk.Label(
+                bar,
+                textvariable=timer_var,
+                font=("Consolas", 14, "bold"),
+                fg=COLORS["timer_green"],
+                bg=COLORS["dark_bg"],
+                width=6,
+            )
+            timer_label.grid(row=0, column=3, padx=10)
+            timer_label._skip_theme_fg = True
+            timer_label._skip_theme_font = True  # Keep monospace digits for the timer
+        # Register for directional swapping (support legacy tuples too)
+        self._dir_top_bars.append((lang_btn, timer_label, theme_btn))
 
-        # Register for directional swapping
-        self._dir_top_bars.append((lang_btn, timer_label))
+        # Store refs for theming
+        self._theme_top_bars.append(
+            {
+                "bar": bar,
+                "title": title_lbl,
+                "timer": timer_label,
+                "theme_btn": theme_btn,
+                "lang_btn": lang_btn,
+            }
+        )
 
         return bar, lang_btn, timer_label
 
@@ -281,9 +771,230 @@ class ChatbotGUI:
             lang_var.set("English")
         if self.manager:
             self.manager.set_language(self.lang)
+        self._update_theme_button_text()
         self._refresh_current_screen_labels()
         self._apply_direction()
 
+    def _update_theme_button_text(self):
+        if self.lang == "he":
+            label = "☀ בהיר" if self.theme_name == "light" else "🌙 כהה"
+        else:
+            label = "☀ Light" if self.theme_name == "light" else "🌙 Dark"
+        self.theme_btn_text_var.set(label)
+
+    def _toggle_theme(self):
+        self.theme_name = "dark" if self.theme_name == "light" else "light"
+        self._update_theme_button_text()
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply theme colors to the whole UI."""
+        th = THEMES[self.theme_name]
+        # Style ttk widgets (Progressbar). Use a dedicated style name so we can reconfigure on theme switch.
+        pb_style = "App.Horizontal.TProgressbar"
+        try:
+            # NOTE: ttk.Progressbar uses styles; colors are platform/theme dependent.
+            self._ttk_style.configure(
+                pb_style,
+                troughcolor=th["panel_bg"],
+                background=th["focus"],
+                bordercolor=th["border"],
+                lightcolor=th["focus"],
+                darkcolor=th["focus"],
+            )
+        except Exception:
+            pass
+
+        # Style ttk Scrollbar (best-effort; some OS themes may override parts)
+        self._ttk_scrollbar_style = "App.Vertical.TScrollbar"
+        try:
+            self._ttk_style.configure(
+                self._ttk_scrollbar_style,
+                troughcolor=th["scroll_trough"],
+                background=th["scroll_thumb"],
+                bordercolor=th["scroll_trough"],
+                arrowcolor=th["muted_fg"],
+                lightcolor=th["scroll_thumb"],
+                darkcolor=th["scroll_thumb"],
+            )
+        except Exception:
+            pass
+
+        # Keep compatibility with existing code that uses COLORS["dark_bg"]
+        COLORS["dark_bg"] = th["topbar_bg"]
+
+        # Root + screens
+        self.root.configure(bg=th["app_bg"])
+        for frame in self.screens.values():
+            try:
+                frame.configure(bg=th["app_bg"])
+            except tk.TclError:
+                pass
+
+        # Generic pass: recolor common widgets recursively
+        self._apply_theme_recursive(self.root, th)
+
+        # Top bars: force correct colors (white text etc.)
+        for tb in getattr(self, "_theme_top_bars", []):
+            bar = tb.get("bar")
+            title_lbl = tb.get("title")
+            timer_lbl = tb.get("timer")
+            theme_btn = tb.get("theme_btn")
+            lang_btn = tb.get("lang_btn")
+
+            if bar:
+                bar.configure(bg=th["topbar_bg"])
+            if title_lbl:
+                title_lbl.configure(bg=th["topbar_bg"], fg=th["topbar_fg"])
+            if timer_lbl:
+                timer_lbl.configure(bg=th["topbar_bg"])
+
+            if theme_btn:
+                self._style_topbar_button(theme_btn, th)
+            if lang_btn:
+                self._style_topbar_button(lang_btn, th)
+
+        # Theme AnimatedStatusBar widgets (Setup + Chat)
+        for bar in [getattr(self, "setup_progress", None), getattr(self, "chat_progress", None)]:
+            if not bar:
+                continue
+
+            # Frame + label background/foreground
+            try:
+                bar._frame.configure(bg=th["panel_bg"])
+            except Exception:
+                pass
+            try:
+                bar._label.configure(bg=th["panel_bg"], fg=th["muted_fg"])
+            except Exception:
+                pass
+
+            # Progressbar style
+            try:
+                bar._pb.configure(style=pb_style)
+            except Exception:
+                pass
+
+            # Optional cancel button (exists only on setup_progress)
+            try:
+                if hasattr(bar, "_cancel_btn"):
+                    bar._cancel_btn.configure(
+                        bg=th["topbar_btn_bg"],
+                        fg=th["topbar_btn_fg"],
+                        activebackground=th["topbar_btn_active_bg"],
+                        activeforeground=th["topbar_btn_fg"],
+                        relief=tk.FLAT,
+                        bd=0,
+                        cursor="hand2",
+                    )
+            except Exception:
+                pass
+        # Ensure Text tag colors follow the active theme (and look more professional).
+        self._theme_scrolledtext_scrollbars(th)
+        self._apply_text_tag_theme(th)
+
+    def _apply_theme_recursive(self, widget, th):
+        """Best-effort theming for Tk widgets."""
+        try:
+            # Typography coercion (keep it early so widgets look consistent)
+            self._coerce_font_family(widget)
+
+            if isinstance(widget, tk.Frame):
+                relief = str(widget.cget("relief")).lower()
+                is_card = relief not in ("flat", "none", "")
+
+                bg = th["panel_bg"] if is_card else th["app_bg"]
+                widget.configure(bg=bg)
+
+                # Card look: subtle border, no chunky 3D relief
+                if is_card:
+                    try:
+                        widget.configure(
+                            relief=tk.FLAT,
+                            bd=0,
+                            highlightthickness=1,
+                            highlightbackground=th["border"],
+                            highlightcolor=th["border"],
+                        )
+                    except Exception:
+                        pass
+
+            elif isinstance(widget, tk.Label):
+                try:
+                    parent_bg = widget.master.cget("bg")
+                except Exception:
+                    parent_bg = th["app_bg"]
+
+                # Some labels (e.g., timers) use semantic colors; do not override their fg.
+                if getattr(widget, "_skip_theme_fg", False):
+                    widget.configure(bg=parent_bg)
+                else:
+                    old_fg = str(widget.cget("fg")).lower()
+                    muted_candidates = {
+                        "#888", "#777", "#999", "gray",
+                        "#555", "#555555", "#666", "#666666",
+                        "#757575", "#444", "#444444",
+                    }
+                    target_fg = th["muted_fg"] if old_fg in muted_candidates else th["fg"]
+                    widget.configure(bg=parent_bg, fg=target_fg)
+
+            elif isinstance(widget, tk.Text):
+                widget.configure(
+                    bg=th["text_bg"],
+                    fg=th["text_fg"],
+                    insertbackground=th["text_fg"],
+                    selectbackground=th["selection_bg"],
+                    selectforeground=th["text_bg"],
+                )
+
+            elif isinstance(widget, tk.Entry):
+                widget.configure(
+                    bg=th["input_bg"],
+                    fg=th["input_fg"],
+                    insertbackground=th["input_fg"],
+                    relief=tk.FLAT,
+                    highlightthickness=1,
+                    highlightbackground=th["border"],
+                    highlightcolor=th["focus"],
+                )
+
+            elif isinstance(widget, tk.Spinbox):
+                widget.configure(
+                    bg=th["input_bg"],
+                    fg=th["input_fg"],
+                    insertbackground=th["input_fg"],
+                    relief=tk.FLAT,
+                    highlightthickness=1,
+                    highlightbackground=th["border"],
+                    highlightcolor=th["focus"],
+                    buttonbackground=th["panel_bg"],
+                )
+
+            elif isinstance(widget, tk.Scrollbar):
+                self._style_scrollbar(widget, th)
+
+            elif isinstance(widget, ttk.Scrollbar):
+                # ttk scrollbars follow styles
+                try:
+                    widget.configure(style=getattr(self, "_ttk_scrollbar_style", "TScrollbar"))
+                except Exception:
+                    pass
+
+            elif isinstance(widget, tk.Button):
+                # Cache semantic role once, then theme-switch is consistent
+                if getattr(widget, "_btn_role", None) is None:
+                    widget._btn_role = self._infer_button_role(widget)
+
+                # Skip topbar here (handled explicitly in _apply_theme)
+                role = getattr(widget, "_btn_role", "secondary")
+                if role != "topbar":
+                    self._style_button(widget, th, role)
+
+        except tk.TclError:
+            pass
+
+        for child in widget.winfo_children():
+            self._apply_theme_recursive(child, th)
     def _refresh_current_screen_labels(self):
         """Update labels on current screen for language change."""
         if self.current_screen == "setup":
@@ -352,10 +1063,18 @@ class ChatbotGUI:
             self.input_field.master.columnconfigure(1, weight=0)
 
         # --- Top bars: swap lang button / timer positions ---
-        lang_col = 2 if is_rtl else 0
-        timer_col = 0 if is_rtl else 2
-        for lang_btn, timer_label in self._dir_top_bars:
+        lang_col = 3 if is_rtl else 0
+        timer_col = 0 if is_rtl else 3
+        theme_col = 2
+
+        for item in self._dir_top_bars:
+            lang_btn = item[0]
+            timer_label = item[1] if len(item) > 1 else None
+            theme_btn = item[2] if len(item) > 2 else None
+
             lang_btn.grid_configure(column=lang_col)
+            if theme_btn:
+                theme_btn.grid_configure(column=theme_col)
             if timer_label:
                 timer_label.grid_configure(column=timer_col)
         # --- Settings screen: mirror label/spinner columns for RTL ---
@@ -456,6 +1175,88 @@ class ChatbotGUI:
 
         widget.bind("<Control-KeyPress>", _ctrl_keypress)
 
+    def _install_entry_context_menu(self, widget: tk.Entry):
+        def _select_all():
+            widget.selection_range(0, tk.END)
+            widget.icursor(tk.END)
+
+        def _popup(event):
+            widget.focus_set()
+
+            menu = tk.Menu(widget, tearoff=0)
+
+            if getattr(self, "lang", "en") == "he":
+                labels = {"cut": "גזור", "copy": "העתק", "paste": "הדבק", "all": "בחר הכל"}
+            else:
+                labels = {"cut": "Cut", "copy": "Copy", "paste": "Paste", "all": "Select All"}
+
+            menu.add_command(label=labels["cut"], command=lambda: widget.event_generate("<<Cut>>"))
+            menu.add_command(label=labels["copy"], command=lambda: widget.event_generate("<<Copy>>"))
+            menu.add_command(label=labels["paste"], command=lambda: widget.event_generate("<<Paste>>"))
+            menu.add_separator()
+            menu.add_command(label=labels["all"], command=_select_all)
+
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+            return "break"
+
+        # Windows/Linux: Button-3, some mac/touchpads: Button-2
+        widget.bind("<Button-3>", _popup)
+        widget.bind("<Button-2>", _popup)
+
+
+    def _install_entry_clipboard_shortcuts(self, widget: tk.Entry):
+        """Ctrl+V/C/X/A for Entry, including layout-independent control chars."""
+        def _paste(_e=None):
+            widget.event_generate("<<Paste>>")
+            return "break"
+
+        def _copy(_e=None):
+            widget.event_generate("<<Copy>>")
+            return "break"
+
+        def _cut(_e=None):
+            widget.event_generate("<<Cut>>")
+            return "break"
+
+        def _select_all(_e=None):
+            widget.selection_range(0, tk.END)
+            widget.icursor(tk.END)
+            return "break"
+
+        # Standard shortcuts
+        widget.bind("<Control-v>", _paste)
+        widget.bind("<Control-V>", _paste)
+        widget.bind("<Shift-Insert>", _paste)
+
+        widget.bind("<Control-c>", _copy)
+        widget.bind("<Control-C>", _copy)
+        widget.bind("<Control-Insert>", _copy)
+
+        widget.bind("<Control-x>", _cut)
+        widget.bind("<Control-X>", _cut)
+        widget.bind("<Shift-Delete>", _cut)
+
+        widget.bind("<Control-a>", _select_all)
+        widget.bind("<Control-A>", _select_all)
+
+        # Layout-independent control chars:
+        #   Ctrl+V -> \x16, Ctrl+C -> \x03, Ctrl+X -> \x18, Ctrl+A -> \x01
+        def _ctrl_keypress(e):
+            if e.char == "\x16":
+                return _paste(e)
+            if e.char == "\x03":
+                return _copy(e)
+            if e.char == "\x18":
+                return _cut(e)
+            if e.char == "\x01":
+                return _select_all(e)
+            return None
+
+        widget.bind("<Control-KeyPress>", _ctrl_keypress)
     def _register_dir_btn_frame(self, frame, buttons, special_right_btn=None):
         """Register a button frame for directional repack."""
         self._dir_btn_frames.append((frame, buttons, special_right_btn))
@@ -561,6 +1362,7 @@ class ChatbotGUI:
             bg=COLORS["green_btn"], fg="white", width=16,
             command=self._on_generate_topic
         )
+        self.generate_btn._btn_role = "primary"
         self.generate_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         self.load_btn = tk.Button(
@@ -568,6 +1370,7 @@ class ChatbotGUI:
             bg=COLORS["gray_btn"], fg="white", width=16,
             command=self._on_load_topic
         )
+        self.load_btn._btn_role = "secondary"
         self.load_btn.pack(side=tk.LEFT)
 
         self._register_dir_btn_frame(
@@ -833,6 +1636,8 @@ class ChatbotGUI:
             bg=COLORS["green_btn"], fg="white", width=18,
             command=self._on_settings_start
         )
+        # Semantic role for theming (fix hover stuck in light theme on Windows)
+        self.settings_start_btn._btn_role = "primary"
         self.settings_start_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         self.settings_back_btn = tk.Button(
@@ -840,6 +1645,8 @@ class ChatbotGUI:
             bg=COLORS["gray_btn"], fg="white", width=14,
             command=lambda: self._show_screen("setup")
         )
+        # Semantic role for theming (fix hover stuck in light theme on Windows)
+        self.settings_back_btn._btn_role = "secondary"
         self.settings_back_btn.pack(side=tk.LEFT)
 
         self._register_dir_btn_frame(
@@ -894,7 +1701,7 @@ class ChatbotGUI:
             return
 
         # --- 2) Clamp to allowed ranges ---
-        prep = max(1, min(60, prep))      # preparation: 1–60
+        prep = max(1, min(20, prep))      # preparation: 1–20
         teach = max(3, min(60, teach))    # teaching: 3–60
 
         # --- 3) Write clamped values back into UI ---
@@ -1165,10 +1972,14 @@ class ChatbotGUI:
         self.input_field.grid(row=0, column=0, sticky="ew", padx=(0, 5))
         self.input_field.bind("<Return>", self._on_send)
 
+        self._install_entry_context_menu(self.input_field)
+        self._install_entry_clipboard_shortcuts(self.input_field)
+
         self.send_btn = tk.Button(
             input_frame, text="Send", font=("Arial", 11, "bold"),
             bg=COLORS["green_btn"], fg="white", width=8, command=self._on_send
         )
+        self.send_btn._btn_role = "primary"
         self.send_btn.grid(row=0, column=1)
 
         # Action buttons
@@ -1181,6 +1992,7 @@ class ChatbotGUI:
 
         self.eval_btn = tk.Button(self.chat_btn_frame, text="Get Evaluation", font=("Arial", 10),
                                    bg=COLORS["pink_btn"], fg="white", width=13, command=self._on_evaluate)
+        self.eval_btn._btn_role = "secondary"
         self.eval_btn.pack(side=tk.LEFT, padx=(0, 5))
 
         self.summary_btn = tk.Button(self.chat_btn_frame, text="Summary", font=("Arial", 10),
