@@ -227,6 +227,10 @@ def get_single_explanation_evaluation_messages(
     component_keys = [c.get("key", "") for c in components if c.get("key")]
     output_shape = ",\n  ".join(f"\"{key}\": 0" for key in component_keys)
 
+    notes_lang_hint = ""
+    if lang == "he":
+        notes_lang_hint = '\nIMPORTANT: The "notes" field value MUST be written in Hebrew (עברית).\n'
+
     prompt = f"""Evaluate this student explanation for topic: {topic_name}
 
 Scoring scale per component:
@@ -251,7 +255,7 @@ Return ONLY valid JSON in this exact structure (no markdown, no extra keys):
   "misconceptions_count": 0,
   "notes": "short rationale"
 }}
-
+{notes_lang_hint}
 Student explanation:
 {explanation}
 """
@@ -267,6 +271,116 @@ Student explanation:
         },
         {"role": "user", "content": prompt},
     ]
+
+
+# ============================================================================
+# RETROSPECTIVE PROMPTS
+# ============================================================================
+
+
+def get_retrospective_system_prompt(
+    lang: str,
+    evaluation_result: dict,
+    student_history: list,
+    mentor_history: list,
+    topic_name: str,
+    conversation_summary: dict,
+) -> str:
+    """
+    Build the system prompt for the retrospective bot.
+
+    The bot receives the full teaching context and evaluation results,
+    and guides the student through structured reflection.
+    """
+    lang_instruction = LANGUAGE_INSTRUCTION.get(lang, LANGUAGE_INSTRUCTION["en"])
+
+    total_score = evaluation_result.get("total_score", 0)
+    max_score = evaluation_result.get("max_score", 0)
+    perf_level = evaluation_result.get("performance_level", "Unknown")
+    component_scores = evaluation_result.get("component_scores", {})
+    notes = evaluation_result.get("notes", "")
+    misconceptions_count = evaluation_result.get("misconceptions_count", 0)
+
+    weak_components = [k for k, v in component_scores.items() if v <= 1]
+    strong_components = [k for k, v in component_scores.items() if v == 2]
+
+    # Build conversation transcript excerpt (last 10 messages, truncated)
+    transcript_lines = []
+    for msg in student_history[-10:]:
+        role_label = "Teacher" if msg["role"] == "user" else "Student"
+        transcript_lines.append(f"{role_label}: {msg['content'][:200]}")
+    transcript_excerpt = "\n".join(transcript_lines)
+
+    # Build mentor advice summary
+    mentor_summary = ""
+    if mentor_history:
+        mentor_points = [
+            m.get("advice", m.get("content", ""))[:150]
+            for m in mentor_history[-3:]
+        ]
+        mentor_summary = "\n".join(f"- {p}" for p in mentor_points if p)
+
+    if lang == "he":
+        prompt = f"""אתה בוט רטרוספקטיבה חינוכי חם ומעודד. תפקידך לעזור לתלמיד לחשוב לאחור (רפלקציה) על חוויית ההוראה שלו.
+
+נושא: {topic_name}
+ציון: {total_score}/{max_score} ({perf_level})
+תפיסות שגויות שזוהו: {misconceptions_count}
+
+רכיבים חזקים: {', '.join(strong_components) if strong_components else 'אין'}
+רכיבים לשיפור: {', '.join(weak_components) if weak_components else 'אין'}
+
+הערות המעריך:
+{notes}
+
+קטע מהשיחה:
+{transcript_excerpt}
+
+{f'עצות מנטור שניתנו:' + chr(10) + mentor_summary if mentor_summary else 'לא התייעץ עם מנטור.'}
+
+הנחיות:
+1. התחל בהודעה חמה קצרה שמדגישה דבר אחד שעשה טוב.
+2. בכל הודעה — שאל שאלה רפלקטיבית אחת בלבד. לעולם אל תשאל יותר משאלה אחת בהודעה.
+3. תגיב לתשובות התלמיד לפני שאתה עובר לנושא הבא.
+4. היה חם, מעודד ובונה. הימנע מביקורת שלילית.
+5. שמור על הודעות קצרות מאוד — משפט-שניים + שאלה אחת. לא יותר.
+
+{lang_instruction}"""
+    else:
+        prompt = f"""You are a warm, encouraging educational retrospective bot. Your role is to help the student reflect on their teaching experience.
+
+Topic: {topic_name}
+Score: {total_score}/{max_score} ({perf_level})
+Misconceptions detected: {misconceptions_count}
+
+Strong components: {', '.join(strong_components) if strong_components else 'None'}
+Components to improve: {', '.join(weak_components) if weak_components else 'None'}
+
+Evaluator notes:
+{notes}
+
+Conversation excerpt:
+{transcript_excerpt}
+
+{f'Mentor advice given:' + chr(10) + mentor_summary if mentor_summary else 'No mentor was consulted.'}
+
+Guidelines:
+1. Start with a brief warm message highlighting ONE thing they did well.
+2. Ask exactly ONE reflective question per message. Never ask more than one question at a time.
+3. Always respond to what the student said before moving to the next topic.
+4. Be warm, encouraging, and constructive. Avoid negative criticism.
+5. Keep messages very short — one or two sentences + one question. No longer.
+
+{lang_instruction}"""
+
+    return prompt
+
+
+def get_retrospective_opening_message(lang: str) -> str:
+    """Return the initial user message to kick off the retrospective."""
+    if lang == "he":
+        return "שלום! סיימתי את מפגש ההוראה. אשמח לחשוב לאחור על מה שעשיתי ומה אני יכול לשפר."
+    return "Hi! I just finished the teaching session. I'd like to reflect on what I did and how I can improve."
 
 
 # Quick test

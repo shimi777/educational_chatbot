@@ -49,7 +49,7 @@ logger = get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 _MAX_MATERIAL_CHARS = 15_000
-_SCREENS = ("setup", "settings", "lesson", "chat", "evaluation")
+_SCREENS = ("setup", "settings", "lesson", "chat", "evaluation", "retrospective")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,6 +58,39 @@ _SCREENS = ("setup", "settings", "lesson", "chat", "evaluation")
 def t(en: str, he: str) -> str:
     """Return the English or Hebrew string based on current language."""
     return he if st.session_state.get("lang", "en") == "he" else en
+
+
+# Hebrew translations for evaluation component keys
+_COMPONENT_LABELS_HE: dict[str, str] = {
+    "core_statement": "הצהרת ליבה",
+    "formal_form": "צורה פורמלית / מדויקת",
+    "conditions": "תנאים / הנחות",
+    "mechanism": "מנגנון / סיבה-תוצאה",
+    "distinctions": "הבחנות מושגיות",
+    "example": "דוגמה / יישום",
+    "misconceptions": "טיפול בתפיסות שגויות",
+}
+
+# Hebrew translations for performance levels
+_PERFORMANCE_LEVELS_HE: dict[str, str] = {
+    "Limited Understanding": "הבנה מוגבלת",
+    "Developing Understanding": "הבנה מתפתחת",
+    "Strong Understanding": "הבנה חזקה",
+}
+
+
+def _component_label(key: str) -> str:
+    """Return a display label for a component key, respecting language."""
+    if st.session_state.get("lang") == "he":
+        return _COMPONENT_LABELS_HE.get(key, key.replace("_", " ").title())
+    return key.replace("_", " ").title()
+
+
+def _performance_level_label(level: str) -> str:
+    """Return a translated performance level name, respecting language."""
+    if st.session_state.get("lang") == "he":
+        return _PERFORMANCE_LEVELS_HE.get(level, level)
+    return level
 
 
 def _nav(screen: str) -> None:
@@ -152,6 +185,10 @@ def _init_session_state() -> None:
         "chat_timer_seconds": app_config.default_teaching_minutes * 60,
         "session_ended": False,
         "evaluation_result": None,
+        "retro_messages": [],           # [{role, content}] for retrospective chat
+        "retro_llm_history": [],        # [{role, content}] full LLM message history
+        "retro_initialized": False,
+        "confirm_eval_pending": False,  # two-step confirmation for "Get Evaluation"
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -186,6 +223,7 @@ def _render_sidebar() -> None:
             "setup": t("Setup", "הגדרה"),
             "settings": t("Settings", "הגדרות"),
             "lesson": t("Lesson Prep", "הכנה"),
+            "retrospective": t("Retrospective", "רטרוספקטיבה"),
             "chat": t("Teaching", "הוראה"),
             "evaluation": t("Evaluation", "הערכה"),
         }
@@ -201,10 +239,29 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        # Quick-navigation (debug-friendly)
-        st.caption(t("Quick navigation", "ניווט מהיר"))
+        # Quick-navigation — locked until prerequisites are met
+        st.caption(t("Navigation", "ניווט"))
+        tc_ready = st.session_state.topic_config is not None
+        manager_ready = st.session_state.manager is not None
+        eval_ready = st.session_state.evaluation_result is not None
+
+        _screen_unlock = {
+            "setup":         True,
+            "settings":      tc_ready,
+            "lesson":        tc_ready,
+            "chat":          manager_ready,
+            "evaluation":    eval_ready,
+            "retrospective": eval_ready,
+        }
         for screen, label in screen_labels.items():
-            if st.button(label, key=f"nav_{screen}", use_container_width=True):
+            unlocked = _screen_unlock.get(screen, True)
+            icon = "" if unlocked else "🔒 "
+            if st.button(
+                f"{icon}{label}",
+                key=f"nav_{screen}",
+                use_container_width=True,
+                disabled=not unlocked,
+            ):
                 st.session_state.current_screen = screen
                 st.rerun()
 
@@ -215,73 +272,97 @@ def _render_sidebar() -> None:
 
 def _screen_setup() -> None:
     st.title(t("Educational Chatbot — Setup", "צ'אטבוט חינוכי — הגדרה"))
-    st.markdown(
-        t(
-            "Paste your learning material below, set the student age, then generate the topic.",
-            "הדבק את חומר הלמידה למטה, הגדר את גיל התלמיד, ולאחר מכן צור את הנושא.",
-        )
-    )
 
     # ------------------------------------------------------------------ #
-    # File uploader (fills the material text area)
+    # Onboarding info box
     # ------------------------------------------------------------------ #
-    uploaded = st.file_uploader(
-        t("Upload a text / markdown file", "העלה קובץ טקסט / מרקדאון"),
-        type=["txt", "md"],
-        key="material_uploader",
-    )
-    if uploaded is not None:
-        try:
-            content = uploaded.read().decode("utf-8")
-            st.session_state.material_text = content
-        except Exception as exc:
-            st.error(t(f"Could not read file: {exc}", f"לא ניתן לקרוא קובץ: {exc}"))
+    with st.expander(t("ℹ️ How does this work?", "ℹ️ איך זה עובד?"), expanded=False):
+        st.markdown(t(
+            """
+**The Protégé Effect** — you learn best by teaching.
 
-    # ------------------------------------------------------------------ #
-    # Material text area
-    # ------------------------------------------------------------------ #
-    material = st.text_area(
-        t("Learning material", "חומר לימוד"),
-        value=st.session_state.material_text,
-        height=280,
-        max_chars=_MAX_MATERIAL_CHARS,
-        placeholder=t(
-            "Paste your lesson content here (max 15,000 characters)...",
-            "הדבק כאן את תוכן השיעור (עד 15,000 תווים)...",
-        ),
-        key="material_input",
-    )
-    st.session_state.material_text = material
+1. **Paste** a text you want to master (textbook excerpt, article, notes).
+2. **Generate** — the AI creates a lesson plan and a virtual struggling student.
+3. **Prepare** — read your material with a countdown timer.
+4. **Teach** — explain the topic to the struggling student in a live chat.
+5. **Evaluate** — get a detailed score on your explanation quality.
+6. **Reflect** — an AI coach helps you understand what to improve.
+""",
+            """
+**אפקט הפרוטז'ה** — לומדים הכי טוב כשמלמדים.
 
-    char_count = len(material)
-    color = "red" if char_count > _MAX_MATERIAL_CHARS else "gray"
-    st.markdown(
-        f'<small style="color:{color}">'
-        + t(f"{char_count:,} / {_MAX_MATERIAL_CHARS:,} characters", f"{char_count:,} / {_MAX_MATERIAL_CHARS:,} תווים")
-        + "</small>",
-        unsafe_allow_html=True,
-    )
-
-    # ------------------------------------------------------------------ #
-    # Student age
-    # ------------------------------------------------------------------ #
-    st.session_state.student_age = st.number_input(
-        t("Student age", "גיל התלמיד"),
-        min_value=8,
-        max_value=18,
-        value=st.session_state.student_age,
-        step=1,
-        key="age_input",
-    )
+1. **הדבק** טקסט שאתה רוצה לשלוט בו (קטע מספר לימוד, מאמר, הערות).
+2. **צור נושא** — הבינה המלאכותית בונה תכנית שיעור ותלמיד וירטואלי מתקשה.
+3. **הכנה** — קרא את החומר עם טיימר ספירה לאחור.
+4. **למד** — הסבר את הנושא לתלמיד המתקשה בצ'אט חי.
+5. **הערכה** — קבל ציון מפורט על איכות ההסבר שלך.
+6. **רפלקציה** — מאמן AI עוזר לך להבין מה לשפר.
+""",
+        ))
 
     st.divider()
 
-    col1, col2 = st.columns(2)
+    # ------------------------------------------------------------------ #
+    # Tabs: Generate new vs Load saved
+    # ------------------------------------------------------------------ #
+    tab_gen, tab_load = st.tabs([
+        t("✨ Generate New Topic", "✨ צור נושא חדש"),
+        t("📂 Load Saved Topic", "📂 טען נושא שמור"),
+    ])
 
     # ------------------------------------------------------------------ #
-    # Generate Topic button
+    # TAB 1 — Generate
     # ------------------------------------------------------------------ #
-    with col1:
+    with tab_gen:
+        # File uploader (fills the material text area)
+        uploaded = st.file_uploader(
+            t("Upload a .txt or .md file (optional)", "העלה קובץ .txt או .md (אופציונלי)"),
+            type=["txt", "md"],
+            key="material_uploader",
+        )
+        if uploaded is not None:
+            try:
+                content = uploaded.read().decode("utf-8")
+                st.session_state.material_text = content
+            except Exception as exc:
+                st.error(t(f"Could not read file: {exc}", f"לא ניתן לקרוא קובץ: {exc}"))
+
+        # Material text area
+        material = st.text_area(
+            t("Learning material", "חומר לימוד"),
+            value=st.session_state.material_text,
+            height=280,
+            max_chars=_MAX_MATERIAL_CHARS,
+            placeholder=t(
+                "Paste your lesson content here — textbook excerpt, lecture notes, article…",
+                "הדבק כאן את תוכן השיעור — קטע מספר לימוד, הערות הרצאה, מאמר…",
+            ),
+            key="material_input",
+        )
+        st.session_state.material_text = material
+
+        char_count = len(material)
+        color = "red" if char_count > _MAX_MATERIAL_CHARS else "gray"
+        st.markdown(
+            f'<small style="color:{color}">'
+            + t(f"{char_count:,} / {_MAX_MATERIAL_CHARS:,} characters", f"{char_count:,} / {_MAX_MATERIAL_CHARS:,} תווים")
+            + "</small>",
+            unsafe_allow_html=True,
+        )
+
+        st.session_state.student_age = st.number_input(
+            t("Student age", "גיל התלמיד"),
+            min_value=8,
+            max_value=18,
+            value=st.session_state.student_age,
+            step=1,
+            key="age_input",
+            help=t(
+                "The AI tailors vocabulary, examples and difficulty to this age group.",
+                "הבינה המלאכותית מתאימה את אוצר המילים, הדוגמאות ורמת הקושי לגיל זה.",
+            ),
+        )
+
         if st.button(
             t("Generate Topic", "צור נושא"),
             type="primary",
@@ -292,14 +373,12 @@ def _screen_setup() -> None:
             if not material_val:
                 st.error(t("Please enter learning material first.", "אנא הכנס חומר לימוד תחילה."))
             elif len(material_val) > _MAX_MATERIAL_CHARS:
-                st.error(
-                    t(
-                        f"Material exceeds {_MAX_MATERIAL_CHARS:,} characters. Please shorten it.",
-                        f"החומר עולה על {_MAX_MATERIAL_CHARS:,} תווים. אנא קצר אותו.",
-                    )
-                )
+                st.error(t(
+                    f"Material exceeds {_MAX_MATERIAL_CHARS:,} characters. Please shorten it.",
+                    f"החומר עולה על {_MAX_MATERIAL_CHARS:,} תווים. אנא קצר אותו.",
+                ))
             else:
-                with st.spinner(t("Generating topic configuration (2 LLM calls)...", "יוצר הגדרת נושא (2 קריאות LLM)...")):
+                with st.spinner(t("Generating topic configuration (2 LLM calls)…", "יוצר הגדרת נושא (2 קריאות LLM)…")):
                     try:
                         generator = TopicGenerator(LLMClient())
                         tc = generator.generate_topic_config(
@@ -307,35 +386,58 @@ def _screen_setup() -> None:
                             target_age=int(st.session_state.student_age),
                         )
                         st.session_state.topic_config = tc
-                        # Auto-save
                         save_path = os.path.join(
                             os.path.dirname(os.path.abspath(__file__)), "last_topic.json"
                         )
                         tc.save_to_file(save_path)
-                        st.success(
-                            t(
-                                f"Topic generated: {tc.get_topic_name('en')}",
-                                f"נושא נוצר: {tc.get_topic_name('he')}",
-                            )
-                        )
+                        st.success(t(
+                            f"Topic generated: {tc.get_topic_name('en')}",
+                            f"נושא נוצר: {tc.get_topic_name('he')}",
+                        ))
                         logger.info("Topic generated: %s", tc.topic_name_en)
                         time.sleep(0.8)
                         _nav("settings")
                     except Exception as exc:
                         logger.error("Topic generation failed: %s", exc)
-                        st.error(
-                            t(
-                                f"Generation failed: {exc}",
-                                f"יצירת הנושא נכשלה: {exc}",
-                            )
-                        )
+                        st.error(t(
+                            f"Generation failed: {exc}",
+                            f"יצירת הנושא נכשלה: {exc}",
+                        ))
 
     # ------------------------------------------------------------------ #
-    # Load saved topic
+    # TAB 2 — Load saved
     # ------------------------------------------------------------------ #
-    with col2:
+    with tab_load:
+        # Quick-load last auto-saved topic
+        last_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_topic.json")
+        if os.path.isfile(last_path):
+            st.info(t(
+                "A previously auto-saved topic was found. Click below to reload it instantly.",
+                "נמצא נושא שנשמר אוטומטית. לחץ למטה כדי לטעון אותו מחדש.",
+            ))
+            if st.button(
+                t("⚡ Load Last Auto-Saved Topic", "⚡ טען נושא אחרון שנשמר"),
+                key="btn_load_last",
+                type="primary",
+                use_container_width=True,
+            ):
+                try:
+                    tc = TopicConfig.load_from_file(last_path)
+                    if tc.is_valid():
+                        st.session_state.topic_config = tc
+                        st.success(t(f"Loaded: {tc.get_topic_name('en')}", f"נטען: {tc.get_topic_name('he')}"))
+                        time.sleep(0.5)
+                        _nav("settings")
+                    else:
+                        st.error(t("Saved topic is invalid.", "הנושא השמור אינו תקין."))
+                except Exception as exc:
+                    st.error(t(f"Load failed: {exc}", f"הטעינה נכשלה: {exc}"))
+
+            st.divider()
+
+        st.markdown(t("Or upload a topic JSON file exported from a previous session:", "או העלה קובץ JSON שיוצא ממפגש קודם:"))
         json_upload = st.file_uploader(
-            t("Load saved topic (JSON)", "טען נושא שמור (JSON)"),
+            t("Topic JSON file", "קובץ JSON של נושא"),
             type=["json"],
             key="json_uploader",
         )
@@ -347,36 +449,14 @@ def _screen_setup() -> None:
                     st.error(t("Loaded topic is invalid or incomplete.", "הנושא שנטען אינו תקין או שלם."))
                 else:
                     st.session_state.topic_config = tc
-                    st.success(
-                        t(
-                            f"Loaded: {tc.get_topic_name('en')}",
-                            f"נטען: {tc.get_topic_name('he')}",
-                        )
-                    )
+                    st.success(t(
+                        f"Loaded: {tc.get_topic_name('en')}",
+                        f"נטען: {tc.get_topic_name('he')}",
+                    ))
                     time.sleep(0.5)
                     _nav("settings")
             except Exception as exc:
                 st.error(t(f"Failed to load topic: {exc}", f"טעינת הנושא נכשלה: {exc}"))
-
-    # Quick-load last_topic.json if it exists
-    last_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_topic.json")
-    if os.path.isfile(last_path):
-        if st.button(
-            t("Load Last Auto-Saved Topic", "טען נושא אחרון שנשמר אוטומטית"),
-            key="btn_load_last",
-            use_container_width=True,
-        ):
-            try:
-                tc = TopicConfig.load_from_file(last_path)
-                if tc.is_valid():
-                    st.session_state.topic_config = tc
-                    st.success(t(f"Loaded: {tc.get_topic_name('en')}", f"נטען: {tc.get_topic_name('he')}"))
-                    time.sleep(0.5)
-                    _nav("settings")
-                else:
-                    st.error(t("Saved topic is invalid.", "הנושא השמור אינו תקין."))
-            except Exception as exc:
-                st.error(t(f"Load failed: {exc}", f"הטעינה נכשלה: {exc}"))
 
 
 # ---------------------------------------------------------------------------
@@ -436,10 +516,10 @@ def _screen_settings() -> None:
     if subject:
         st.info(t(f"Subject area: {subject}", f"תחום: {subject}"))
 
-    # Show key concepts preview
+    # Show key concepts preview — open by default so users actually see it
     concepts = tc.get_key_concepts(lang)
     if concepts:
-        with st.expander(t("Key concepts preview", "תצוגה מקדימה של מושגים מרכזיים")):
+        with st.expander(t("📚 Key concepts preview", "📚 תצוגה מקדימה של מושגים מרכזיים"), expanded=True):
             for c in concepts:
                 st.markdown(f"- {c}")
 
@@ -603,6 +683,7 @@ def _start_chat_session(tc: TopicConfig, lang: str) -> None:
         st.session_state.chat_timer_seconds = st.session_state.teaching_minutes * 60
         st.session_state.session_ended = False
         st.session_state.evaluation_result = None
+        st.session_state.confirm_eval_pending = False
         _nav("chat")
     except Exception as exc:
         logger.error("Failed to start chat session: %s", exc)
@@ -637,12 +718,20 @@ def _screen_chat() -> None:
     if timer_start is not None:
         remaining = _remaining_seconds(timer_start, total_secs)
         pct = remaining / total_secs if total_secs > 0 else 0.0
-        timer_color = "red" if remaining < 60 else "orange" if remaining < 120 else "green"
+        if remaining < 60:
+            timer_color = "red"
+            urgency_label = t("⛔ Under 1 minute!", "⛔ פחות מדקה!")
+        elif remaining < 120:
+            timer_color = "orange"
+            urgency_label = t("⚠️ Almost out of time!", "⚠️ הזמן כמעט נגמר!")
+        else:
+            timer_color = "green"
+            urgency_label = ""
 
+        timer_text = t(f"Time remaining: {_format_time(remaining)}", f"זמן שנותר: {_format_time(remaining)}")
+        suffix = f" &nbsp; <strong>{urgency_label}</strong>" if urgency_label else ""
         st.markdown(
-            f'<p style="font-size:1.1rem;color:{timer_color};">'
-            + t(f"Time remaining: {_format_time(remaining)}", f"זמן שנותר: {_format_time(remaining)}")
-            + "</p>",
+            f'<p style="font-size:1.1rem;color:{timer_color};">{timer_text}{suffix}</p>',
             unsafe_allow_html=True,
         )
         st.progress(pct)
@@ -664,11 +753,15 @@ def _screen_chat() -> None:
 
     # ------------------------------------------------------------------ #
     # Main layout: 70% chat | 30% mentor panel
+    # RTL: flip column order so mentor panel is on the left in Hebrew
     # ------------------------------------------------------------------ #
-    chat_col, mentor_col = st.columns([7, 3])
+    if lang == "he":
+        mentor_col, chat_col = st.columns([3, 7])
+    else:
+        chat_col, mentor_col = st.columns([7, 3])
 
     # ------------------------------------------------------------------ #
-    # LEFT: Chat
+    # CHAT column
     # ------------------------------------------------------------------ #
     with chat_col:
         st.subheader(t("Conversation", "שיחה"))
@@ -754,23 +847,48 @@ def _screen_chat() -> None:
                             st.error(t(f"Mentor error: {exc}", f"שגיאת מנטור: {exc}"))
                     st.rerun()
 
-        # Get Evaluation
-        if st.button(
-            t("Get Evaluation", "קבל הערכה"),
-            type="primary",
-            use_container_width=True,
-            key="btn_evaluate",
-        ):
-            with st.spinner(t("Evaluating performance...", "מעריך ביצועים...")):
-                try:
-                    result = manager.evaluate_performance()
-                    st.session_state.evaluation_result = result
-                    st.session_state.session_ended = True
-                except Exception as exc:
-                    logger.error("evaluate_performance failed: %s", exc)
-                    st.error(t(f"Evaluation error: {exc}", f"שגיאת הערכה: {exc}"))
-            if st.session_state.evaluation_result:
-                _nav("evaluation")
+        # Get Evaluation — two-step confirmation
+        if not st.session_state.confirm_eval_pending:
+            if st.button(
+                t("Get Evaluation", "קבל הערכה"),
+                type="primary",
+                use_container_width=True,
+                key="btn_evaluate",
+            ):
+                st.session_state.confirm_eval_pending = True
+                st.rerun()
+        else:
+            st.warning(t(
+                "⚠️ This will end your session. Are you sure?",
+                "⚠️ פעולה זו תסיים את הסשן. האם אתה בטוח?",
+            ))
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button(
+                    t("✅ Confirm", "✅ אישור"),
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_eval_confirm",
+                ):
+                    st.session_state.confirm_eval_pending = False
+                    with st.spinner(t("Evaluating performance...", "מעריך ביצועים...")):
+                        try:
+                            result = manager.evaluate_performance()
+                            st.session_state.evaluation_result = result
+                            st.session_state.session_ended = True
+                        except Exception as exc:
+                            logger.error("evaluate_performance failed: %s", exc)
+                            st.error(t(f"Evaluation error: {exc}", f"שגיאת הערכה: {exc}"))
+                    if st.session_state.evaluation_result:
+                        _nav("evaluation")
+            with c2:
+                if st.button(
+                    t("❌ Cancel", "❌ ביטול"),
+                    use_container_width=True,
+                    key="btn_eval_cancel",
+                ):
+                    st.session_state.confirm_eval_pending = False
+                    st.rerun()
 
         # Summary
         if st.button(t("Conversation Summary", "סיכום שיחה"), use_container_width=True, key="btn_summary"):
@@ -843,6 +961,10 @@ def _reset_to_setup() -> None:
     st.session_state.lesson_timer_start = None
     st.session_state.chat_timer_start = None
     st.session_state.lesson_auto_advanced = False
+    st.session_state.retro_messages = []
+    st.session_state.retro_llm_history = []
+    st.session_state.retro_initialized = False
+    st.session_state.confirm_eval_pending = False
     _nav("setup")
 
 
@@ -869,12 +991,39 @@ def _screen_evaluation() -> None:
 
     total_score = result.get("total_score", 0)
     max_score = result.get("max_score", 0)
-    perf_level = result.get("performance_level", t("Unknown", "לא ידוע"))
+    perf_level = _performance_level_label(
+        result.get("performance_level", t("Unknown", "לא ידוע"))
+    )
     component_scores = result.get("component_scores", {})
     misconceptions_count = result.get("misconceptions_count", 0)
     notes = result.get("notes", "")
     comparison = result.get("comparison", {})
     improvement = comparison.get("improvement") if comparison else None
+
+    st.divider()
+
+    # ------------------------------------------------------------------ #
+    # Overall score gauge
+    # ------------------------------------------------------------------ #
+    score_pct = (total_score / max_score) if max_score else 0.0
+    if score_pct >= 0.7:
+        gauge_color = "green"
+        gauge_emoji = "🟢"
+    elif score_pct >= 0.4:
+        gauge_color = "orange"
+        gauge_emoji = "🟡"
+    else:
+        gauge_color = "red"
+        gauge_emoji = "🔴"
+
+    st.markdown(
+        f'<p style="font-size:1rem;color:{gauge_color};font-weight:bold;">'
+        + f"{gauge_emoji} {perf_level} — {total_score}/{max_score} "
+        + t("points", "נקודות")
+        + "</p>",
+        unsafe_allow_html=True,
+    )
+    st.progress(score_pct)
 
     st.divider()
 
@@ -918,8 +1067,7 @@ def _screen_evaluation() -> None:
         st.subheader(t("Component Scores", "ציוני רכיבים"))
 
         for comp_key, score in component_scores.items():
-            # Label: prettify the key
-            label = comp_key.replace("_", " ").title()
+            label = _component_label(comp_key)
             pct = score / 2.0  # scores are 0-2
 
             col_label, col_bar, col_score = st.columns([2, 4, 1])
@@ -976,6 +1124,27 @@ def _screen_evaluation() -> None:
     st.divider()
 
     # ------------------------------------------------------------------ #
+    # Retrospective call-to-action
+    # ------------------------------------------------------------------ #
+    if st.button(
+        t("Reflect on Your Performance", "חשוב לאחור על הביצועים שלך"),
+        type="primary",
+        use_container_width=True,
+        key="eval_retrospective",
+        help=t(
+            "Start an interactive reflection session to identify what you did well and what to improve.",
+            "התחל מפגש רפלקציה אינטראקטיבי כדי לזהות מה עשית טוב ומה לשפר.",
+        ),
+    ):
+        # Reset retrospective state for a fresh session
+        st.session_state.retro_messages = []
+        st.session_state.retro_llm_history = []
+        st.session_state.retro_initialized = False
+        _nav("retrospective")
+
+    st.divider()
+
+    # ------------------------------------------------------------------ #
     # Action buttons
     # ------------------------------------------------------------------ #
     btn_col1, btn_col2, btn_col3 = st.columns(3)
@@ -983,7 +1152,6 @@ def _screen_evaluation() -> None:
     with btn_col1:
         if st.button(
             t("Try Again", "נסה שוב"),
-            type="primary",
             use_container_width=True,
             key="eval_retry",
         ):
@@ -1031,7 +1199,7 @@ def _build_transcript(result: dict, tc: Optional[TopicConfig], lang: str) -> str
     lines.append("-" * 40)
     total = result.get("total_score", 0)
     max_s = result.get("max_score", 0)
-    level = result.get("performance_level", "")
+    level = _performance_level_label(result.get("performance_level", ""))
     lines.append(f"{t('Total Score', 'ציון כולל')}: {total} / {max_s}")
     lines.append(f"{t('Performance Level', 'רמת ביצועים')}: {level}")
     lines.append(f"{t('Misconceptions Detected', 'תפיסות שגויות')}: {result.get('misconceptions_count', 0)}")
@@ -1043,7 +1211,7 @@ def _build_transcript(result: dict, tc: Optional[TopicConfig], lang: str) -> str
         lines.append(t("COMPONENT SCORES", "ציוני רכיבים"))
         lines.append("-" * 40)
         for key, score in comp_scores.items():
-            label = key.replace("_", " ").title()
+            label = _component_label(key)
             lines.append(f"  {label}: {score}/2")
         lines.append("")
 
@@ -1098,6 +1266,201 @@ def _build_transcript(result: dict, tc: Optional[TopicConfig], lang: str) -> str
 
 
 # ---------------------------------------------------------------------------
+# Screen 6: Retrospective
+# ---------------------------------------------------------------------------
+
+def _screen_retrospective() -> None:
+    """Interactive reflection session after evaluation."""
+    from backend.prompts import get_retrospective_system_prompt, get_retrospective_opening_message
+    from backend.response_validator import sanitize_response
+
+    result = st.session_state.evaluation_result
+    tc: Optional[TopicConfig] = st.session_state.topic_config
+    manager: Optional[ConversationManager] = st.session_state.manager
+
+    if result is None:
+        st.error(t(
+            "No evaluation result found. Complete a teaching session first.",
+            "לא נמצאה תוצאת הערכה. השלם מפגש הוראה תחילה.",
+        ))
+        if st.button(t("Back to Setup", "חזרה להגדרה"), key="retro_back_err"):
+            _nav("setup")
+        return
+
+    lang = st.session_state.lang
+    topic_name = tc.get_topic_name(lang) if tc else t("Unknown", "לא ידוע")
+
+    st.title(t("Retrospective", "רטרוספקטיבה"))
+    st.caption(t(
+        "Reflect on your teaching session with the help of an AI coach.",
+        "חשוב לאחור על מפגש ההוראה שלך בעזרת מאמן AI.",
+    ))
+
+    # ------------------------------------------------------------------ #
+    # Initialize retrospective on first visit
+    # ------------------------------------------------------------------ #
+    if not st.session_state.retro_initialized:
+        student_history = manager.get_student_history() if manager else []
+        mentor_history = manager.get_mentor_history() if manager else []
+        conversation_summary = manager.get_conversation_summary() if manager else {}
+
+        system_prompt = get_retrospective_system_prompt(
+            lang=lang,
+            evaluation_result=result,
+            student_history=student_history,
+            mentor_history=mentor_history,
+            topic_name=topic_name,
+            conversation_summary=conversation_summary,
+        )
+
+        st.session_state.retro_llm_history = [
+            {"role": "system", "content": system_prompt},
+        ]
+
+        opening_msg = get_retrospective_opening_message(lang)
+        st.session_state.retro_llm_history.append(
+            {"role": "user", "content": opening_msg}
+        )
+
+        with st.spinner(t("Starting retrospective...", "מתחיל רטרוספקטיבה...")):
+            try:
+                llm = LLMClient()
+                bot_response = llm.chat(
+                    messages=st.session_state.retro_llm_history,
+                    temperature=0.7,
+                    max_tokens=400,
+                )
+                bot_response = sanitize_response(bot_response, lang)
+                st.session_state.retro_llm_history.append(
+                    {"role": "assistant", "content": bot_response}
+                )
+                st.session_state.retro_messages = [
+                    {"role": "bot", "content": bot_response}
+                ]
+                st.session_state.retro_initialized = True
+            except Exception as exc:
+                logger.error("Retrospective init failed: %s", exc)
+                st.error(t(
+                    f"Failed to start retrospective: {exc}",
+                    f"התחלת הרטרוספקטיבה נכשלה: {exc}",
+                ))
+                return
+
+    # ------------------------------------------------------------------ #
+    # Score summary
+    # ------------------------------------------------------------------ #
+    total_score = result.get("total_score", 0)
+    max_score = result.get("max_score", 0)
+    perf_level = _performance_level_label(result.get("performance_level", ""))
+
+    st.info(t(
+        f"Your score: {total_score}/{max_score} — {perf_level}",
+        f"הציון שלך: {total_score}/{max_score} — {perf_level}",
+    ))
+
+    # Teaching session transcript (collapsible reference)
+    chat_msgs = st.session_state.get("chat_messages", [])
+    if chat_msgs:
+        with st.expander(t("📜 View teaching session transcript", "📜 צפה בתמליל מפגש ההוראה"), expanded=False):
+            for msg in chat_msgs:
+                role = msg["role"]
+                content = msg["content"]
+                if role == "teacher":
+                    with st.chat_message("assistant", avatar="👨‍🏫"):
+                        st.markdown(content)
+                elif role == "student":
+                    with st.chat_message("user", avatar="🧑‍🎓"):
+                        st.markdown(content)
+
+    st.divider()
+
+    # ------------------------------------------------------------------ #
+    # Chat display
+    # ------------------------------------------------------------------ #
+    for msg in st.session_state.retro_messages:
+        role = msg["role"]
+        content = msg["content"]
+        if role == "user":
+            with st.chat_message("user", avatar="👨‍🏫"):
+                st.markdown(content)
+        elif role == "bot":
+            with st.chat_message("assistant", avatar="🪞"):
+                st.markdown(content)
+
+    # ------------------------------------------------------------------ #
+    # User input
+    # ------------------------------------------------------------------ #
+    user_input = st.chat_input(
+        placeholder=t("Share your thoughts...", "שתף את מחשבותיך..."),
+        key="retro_chat_input",
+    )
+
+    if user_input and user_input.strip():
+        st.session_state.retro_messages.append(
+            {"role": "user", "content": user_input.strip()}
+        )
+        st.session_state.retro_llm_history.append(
+            {"role": "user", "content": user_input.strip()}
+        )
+
+        with st.spinner(t("Thinking...", "חושב...")):
+            try:
+                llm = LLMClient()
+                bot_response = llm.chat(
+                    messages=st.session_state.retro_llm_history,
+                    temperature=0.7,
+                    max_tokens=400,
+                )
+                bot_response = sanitize_response(bot_response, lang)
+                st.session_state.retro_llm_history.append(
+                    {"role": "assistant", "content": bot_response}
+                )
+                st.session_state.retro_messages.append(
+                    {"role": "bot", "content": bot_response}
+                )
+            except Exception as exc:
+                logger.error("Retrospective chat failed: %s", exc)
+                st.error(t(f"Error: {exc}", f"שגיאה: {exc}"))
+
+        st.rerun()
+
+    # ------------------------------------------------------------------ #
+    # Action buttons
+    # ------------------------------------------------------------------ #
+    st.divider()
+
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
+
+    with btn_col1:
+        if st.button(
+            t("Back to Evaluation", "חזרה להערכה"),
+            use_container_width=True,
+            key="retro_back_eval",
+        ):
+            _nav("evaluation")
+
+    with btn_col2:
+        if st.button(
+            t("Try Again", "נסה שוב"),
+            type="primary",
+            use_container_width=True,
+            key="retro_retry",
+        ):
+            if tc is not None:
+                _start_chat_session(tc, lang)
+            else:
+                _nav("setup")
+
+    with btn_col3:
+        if st.button(
+            t("New Topic", "נושא חדש"),
+            use_container_width=True,
+            key="retro_new_topic",
+        ):
+            _reset_to_setup()
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1118,6 +1481,8 @@ def main() -> None:
         _screen_chat()
     elif screen == "evaluation":
         _screen_evaluation()
+    elif screen == "retrospective":
+        _screen_retrospective()
     else:
         st.error(t(f"Unknown screen: {screen}", f"מסך לא ידוע: {screen}"))
         if st.button(t("Reset to Setup", "אפס להגדרה"), key="unknown_reset"):

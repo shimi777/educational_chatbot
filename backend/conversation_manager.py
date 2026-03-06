@@ -125,11 +125,11 @@ class ConversationManager:
             topic_config=self.topic_config
         )
 
-        # Get student's response
+        # Get student's response — 150 tokens enforces short, natural kid-like replies
         student_response = self.llm.chat(
             messages=messages,
             temperature=0.7,
-            max_tokens=300
+            max_tokens=150
         )
         student_response = sanitize_response(student_response, self.lang)
 
@@ -397,13 +397,19 @@ class ConversationManager:
             }
 
         spec = self._load_evaluation_spec()
-        after_eval = self._evaluate_explanation_with_llm(teacher_messages[-1], spec)
+        # Evaluate the FULL teaching session (all teacher messages combined),
+        # not just the last message — prevents score=0 when the final turn is short.
+        combined_all = "\n\n---\n\n".join(teacher_messages)
+        after_eval = self._evaluate_explanation_with_llm(combined_all, spec)
 
         before_eval = None
         improvement = None
         reason = None
         if len(teacher_messages) >= 2:
-            before_eval = self._evaluate_explanation_with_llm(teacher_messages[0], spec)
+            # "Before" = first half of messages; "after" = all messages combined.
+            midpoint = max(1, len(teacher_messages) // 2)
+            early_text = "\n\n---\n\n".join(teacher_messages[:midpoint])
+            before_eval = self._evaluate_explanation_with_llm(early_text, spec)
             improvement = self._build_improvement(before_eval, after_eval)
         else:
             reason = (

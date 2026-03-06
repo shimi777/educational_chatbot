@@ -1,250 +1,170 @@
 {
-  "version": "1.0",
-  "purpose": "Topic-agnostic evaluation of student explanations with component scoring, performance levels, mentor feedback, and improvement tracking.",
-  "topic": {
-    "title": "REPLACE_ME (e.g., Newton's First Law / Supply & Demand / Bubble Sort / Photosynthesis)",
-    "domain": "REPLACE_ME (e.g., physics / economics / computer_science / history)",
-    "difficulty": "REPLACE_ME (intro / intermediate / advanced)",
-    "source_truth_summary": "REPLACE_ME: concise truth reference (what a correct explanation must include)."
-  },
+  "version": "2.0",
+  "purpose": "Pedagogical evaluation of student-teacher explanations. Scores reflect teaching quality in a simulated tutoring conversation, not academic depth.",
   "scoring": {
     "point_scale": {
-      "0": "Missing, incorrect, or contradicts the truth.",
-      "1": "Mentioned but incomplete, vague, partially correct, or weakly connected.",
-      "2": "Clear, accurate, and well integrated into the explanation."
+      "0": "Missing or absent — the teacher did not demonstrate this behaviour.",
+      "1": "Partial — attempted but unclear, incomplete, or inconsistent.",
+      "2": "Clear and effective — demonstrated well throughout the conversation."
     },
     "default_max_points_per_component": 2,
     "aggregation": {
-      "method": "weighted_sum",
+      "method": "sum",
       "rounding": "none"
     }
   },
   "performance_levels": [
     {
       "id": "L1",
-      "label": "Limited Understanding",
-      "min_score_inclusive": 0,
-      "max_score_inclusive": 4.06,
-      "interpretation": "Fragmented or incorrect understanding; key conditions/mechanisms missing."
+      "name": "Limited Understanding",
+      "min_score": 0,
+      "max_score": 4,
+      "interpretation": "Explanation was unclear, lacked examples, and showed little responsiveness to the student's confusion."
     },
     {
       "id": "L2",
-      "label": "Developing Understanding",
-      "min_score_inclusive": 4.069999999999999,
-      "max_score_inclusive": 8.96,
-      "interpretation": "Partial understanding; core idea present but lacks precision or structure."
+      "name": "Developing Understanding",
+      "min_score": 5,
+      "max_score": 9,
+      "interpretation": "Core idea was present but explanation lacked structure, examples, or adaptation to confusion."
     },
     {
       "id": "L3",
-      "label": "Strong Understanding",
-      "min_score_inclusive": 8.97,
-      "max_score_inclusive": 14.0,
-      "interpretation": "Integrated and accurate explanation; clear logic, examples, and misconception correction."
+      "name": "Strong Understanding",
+      "min_score": 10,
+      "max_score": 14,
+      "interpretation": "Clear, well-structured explanation with examples, misconception handling, and good responsiveness."
     }
   ],
   "components": [
     {
-      "id": "core_statement",
-      "name": "Core Statement",
-      "description": "The main definition/claim in a clear sentence.",
+      "id": "core_concept",
+      "key": "core_concept",
+      "name": "Core Concept Delivery",
+      "label": "Core Concept Delivery",
+      "description": "Did the teacher communicate the main idea of the topic correctly and clearly?",
       "max_points": 2,
-      "weight": 1.0,
-      "priority": 1,
-      "evaluation_question": "Did the student clearly state the main idea correctly?",
+      "evaluation_question": "Was the central concept explained accurately and in understandable terms?",
       "observable_indicators": [
-        "Accurate statement of the central claim/definition in plain language."
+        "States the main idea in plain, accessible language.",
+        "The explanation is factually correct."
       ],
-      "detection_hints": {
-        "keywords": [],
-        "regex": []
-      },
       "mentor_feedback": {
-        "if_missing": "Can you state the main idea in one clear sentence?",
-        "if_partial": "Your main statement is close\u2014make it more precise and complete."
+        "if_missing": "Can you state the main idea of the topic in one or two simple sentences?",
+        "if_partial": "You touched on the main idea — make it clearer and more direct."
       }
     },
     {
-      "id": "formal_form",
-      "name": "Formal / Precise Form",
-      "description": "Equation, theorem statement, algorithm/pseudocode, or a precise rule.",
+      "id": "examples",
+      "key": "examples",
+      "name": "Use of Examples",
+      "label": "Use of Examples",
+      "description": "Did the teacher use at least one concrete, relatable example or analogy?",
       "max_points": 2,
-      "weight": 1.0,
-      "priority": 2,
-      "evaluation_question": "Did the student include a precise/formal form (when appropriate)?",
+      "evaluation_question": "Did the teacher illustrate the concept with a real-world example or analogy?",
       "observable_indicators": [
-        "Uses a formal definition, equation, rule, or pseudocode consistent with the truth."
+        "Provides a concrete scenario or analogy.",
+        "The example is age-appropriate and clearly connected to the concept."
       ],
-      "detection_hints": {
-        "keywords": [],
-        "regex": []
-      },
       "mentor_feedback": {
-        "if_missing": "Can you add the formal/precise form (equation/rule/definition) that matches this idea?",
-        "if_partial": "You referenced the formal rule, but it\u2019s not fully correct\u2014please rewrite it precisely."
+        "if_missing": "Try adding a real-world example or simple analogy to make the idea concrete.",
+        "if_partial": "Your example is close — connect it explicitly back to the main idea."
       }
     },
     {
-      "id": "conditions",
-      "name": "Necessary Conditions / Assumptions",
-      "description": "Conditions under which the statement holds (constraints/assumptions).",
+      "id": "check_understanding",
+      "key": "check_understanding",
+      "name": "Checking Understanding",
+      "label": "Checking Understanding",
+      "description": "Did the teacher check whether the student understood, by asking questions or inviting feedback?",
       "max_points": 2,
-      "weight": 1.0,
-      "priority": 3,
-      "evaluation_question": "Did the student state the key assumptions/conditions?",
+      "evaluation_question": "Did the teacher ask the student whether they understood, or invite them to respond?",
       "observable_indicators": [
-        "Explicitly names assumptions or constraints (e.g., 'only when...', 'assuming...', 'if...')."
+        "Asks 'Does that make sense?', 'Can you explain that back to me?', or similar.",
+        "Waits for or responds to the student's level of understanding."
       ],
-      "detection_hints": {
-        "keywords": [
-          "if",
-          "assuming",
-          "only when",
-          "given that"
-        ],
-        "regex": []
-      },
       "mentor_feedback": {
-        "if_missing": "What conditions or assumptions must be true for your statement to hold?",
-        "if_partial": "You hinted at conditions\u2014state them explicitly and clearly."
+        "if_missing": "After explaining, ask the student: 'Does that make sense?' or 'Can you tell me in your own words?'",
+        "if_partial": "Good — make checking understanding a consistent habit, not just once."
       }
     },
     {
-      "id": "mechanism",
-      "name": "Mechanism / Cause\u2013Effect / Logic",
-      "description": "Explains why/how: causal chain, logical implication, or mechanism.",
-      "max_points": 2,
-      "weight": 1.0,
-      "priority": 4,
-      "evaluation_question": "Did the student explain the mechanism or logic (not only the outcome)?",
-      "observable_indicators": [
-        "Uses causal or logical structure (e.g., 'because', 'therefore', 'if...then...')."
-      ],
-      "detection_hints": {
-        "keywords": [
-          "because",
-          "therefore",
-          "so",
-          "if",
-          "then"
-        ],
-        "regex": []
-      },
-      "mentor_feedback": {
-        "if_missing": "Explain *why* it works\u2014use a clear 'because' or 'if\u2013then' structure.",
-        "if_partial": "Your logic is partly there\u2014make the cause\u2013effect chain explicit and correct."
-      }
-    },
-    {
-      "id": "distinctions",
-      "name": "Conceptual Distinctions",
-      "description": "Distinguishes related concepts that students often confuse.",
-      "max_points": 2,
-      "weight": 1.0,
-      "priority": 5,
-      "evaluation_question": "Did the student distinguish this concept from common confusions?",
-      "observable_indicators": [
-        "Explicitly contrasts two nearby concepts and states the difference accurately."
-      ],
-      "detection_hints": {
-        "keywords": [
-          "not",
-          "different from",
-          "vs",
-          "versus"
-        ],
-        "regex": []
-      },
-      "mentor_feedback": {
-        "if_missing": "What is a common thing people confuse this with, and how is it different?",
-        "if_partial": "You started a distinction\u2014finish it with a clear, correct contrast."
-      }
-    },
-    {
-      "id": "example",
-      "name": "Example / Application",
-      "description": "A concrete example that matches the statement and conditions.",
-      "max_points": 2,
-      "weight": 1.0,
-      "priority": 6,
-      "evaluation_question": "Did the student provide a relevant example that supports the explanation?",
-      "observable_indicators": [
-        "Includes a concrete scenario and explicitly connects it to the concept."
-      ],
-      "detection_hints": {
-        "keywords": [
-          "for example",
-          "e.g.",
-          "such as"
-        ],
-        "regex": []
-      },
-      "mentor_feedback": {
-        "if_missing": "Give one concrete example and explain how it fits the idea.",
-        "if_partial": "Your example is close\u2014connect it explicitly to the main idea and conditions."
-      }
-    },
-    {
-      "id": "misconceptions",
+      "id": "misconception_handling",
+      "key": "misconception_handling",
       "name": "Misconception Handling",
-      "description": "Identifies and corrects a common misconception.",
+      "label": "Misconception Handling",
+      "description": "Did the teacher identify and address a common misconception about the topic?",
       "max_points": 2,
-      "weight": 1.0,
-      "priority": 7,
-      "evaluation_question": "Did the student address a common misconception and correct it?",
+      "evaluation_question": "Did the teacher proactively address or correct a misconception expressed by the student?",
       "observable_indicators": [
-        "Names a typical wrong belief and explains why it is wrong."
+        "Names or acknowledges a wrong belief the student holds.",
+        "Explains clearly why the misconception is incorrect."
       ],
-      "detection_hints": {
-        "keywords": [
-          "many people think",
-          "common misconception",
-          "but that's wrong",
-          "actually"
-        ],
-        "regex": []
-      },
       "mentor_feedback": {
-        "if_missing": "What is a common misconception here, and why is it wrong?",
-        "if_partial": "You mentioned a misconception\u2014explain clearly why it\u2019s incorrect."
+        "if_missing": "What do students often get wrong about this topic? Address that directly.",
+        "if_partial": "You spotted the misconception — now explain clearly *why* it is wrong."
+      }
+    },
+    {
+      "id": "adaptation",
+      "key": "adaptation",
+      "name": "Adaptive Teaching",
+      "label": "Adaptive Teaching",
+      "description": "Did the teacher adjust their approach when the student expressed confusion or asked follow-up questions?",
+      "max_points": 2,
+      "evaluation_question": "Did the teacher change strategy (different example, simpler language) in response to student confusion?",
+      "observable_indicators": [
+        "Rephrases or tries a different approach after confusion.",
+        "Responds to the specific question the student asked, not a generic answer."
+      ],
+      "mentor_feedback": {
+        "if_missing": "When the student was confused, try rephrasing or using a completely different example.",
+        "if_partial": "You adapted partially — be more deliberate about tailoring to what the student said."
+      }
+    },
+    {
+      "id": "age_appropriate_language",
+      "key": "age_appropriate_language",
+      "name": "Age-Appropriate Language",
+      "label": "Age-Appropriate Language",
+      "description": "Did the teacher avoid excessive jargon and use language appropriate for the student's age?",
+      "max_points": 2,
+      "evaluation_question": "Was the vocabulary and sentence complexity suitable for the target age group?",
+      "observable_indicators": [
+        "Avoids or explains technical terms.",
+        "Uses short sentences and everyday vocabulary."
+      ],
+      "mentor_feedback": {
+        "if_missing": "Your language is too technical — imagine explaining this to a child with no background.",
+        "if_partial": "You used some jargon — when you introduce a technical term, always define it immediately."
+      }
+    },
+    {
+      "id": "encouragement",
+      "key": "encouragement",
+      "name": "Encouragement & Patience",
+      "label": "Encouragement & Patience",
+      "description": "Did the teacher show patience, warmth, and encouragement throughout the conversation?",
+      "max_points": 2,
+      "evaluation_question": "Did the teacher respond to confusion with patience and positive reinforcement?",
+      "observable_indicators": [
+        "Acknowledges the student's effort or confusion positively.",
+        "Does not show frustration; keeps a supportive tone."
+      ],
+      "mentor_feedback": {
+        "if_missing": "Acknowledge the student's effort — a simple 'Good question!' goes a long way.",
+        "if_partial": "Good warmth at times — try to keep it consistent throughout."
       }
     }
   ],
-  "mentor_policy": {
-    "max_targets_per_round": 2,
-    "selection_rules": [
-      "Prefer components scored 0 over components scored 1.",
-      "If ties, pick lower `priority` number first.",
-      "Do not target components already scored 2."
-    ],
-    "response_template": {
-      "positive_reinforcement": "One short sentence about what was correct.",
-      "targets": [
-        {
-          "type": "correction_or_prompt",
-          "content": "Targeted guidance based on the specific missing/weak component."
-        }
-      ],
-      "rewrite_request": "Please rewrite your explanation in 3\u20135 structured sentences addressing the points above."
-    }
-  },
-  "improvement": {
-    "metrics": [
-      {
-        "id": "delta_total_score",
-        "definition": "total_score_after - total_score_before"
-      },
-      {
-        "id": "components_improved",
-        "definition": "count of components where score_after > score_before"
-      },
-      {
-        "id": "coverage_rate",
-        "definition": "count(score>=1)/num_components"
-      },
-      {
-        "id": "misconception_reduction",
-        "definition": "misconceptions score increases to 2 or improves by at least 1"
-      }
-    ]
-  }
+  "llm_instructions": [
+    "You are evaluating the FULL teaching conversation, not a single message.",
+    "Assign each component a score of exactly 0, 1, or 2.",
+    "Score 0: the behaviour was absent across the entire conversation.",
+    "Score 1: the behaviour appeared but was incomplete, inconsistent, or unclear.",
+    "Score 2: the behaviour was clearly and effectively demonstrated.",
+    "Do NOT default to 0. If there is any evidence of the behaviour, score at least 1.",
+    "The 'notes' field must contain a short, specific rationale referencing what the teacher actually said.",
+    "Return valid JSON only — no markdown, no extra keys."
+  ]
 }
