@@ -1962,6 +1962,8 @@ class ChatbotGUI:
         self.chat_display.tag_configure("label_teacher", foreground="#2E7D32", font=("Arial", 11, "bold"))
         self.chat_display.tag_configure("system", foreground="#757575", font=("Arial", 10, "italic"))
         self.chat_display.tag_configure("time_up", foreground="#C62828", font=("Arial", 12, "bold"))
+        self._install_text_context_menu(self.chat_display)
+        self._install_clipboard_shortcuts(self.chat_display)
 
         # Input area
         input_frame = tk.Frame(frame)
@@ -2008,9 +2010,15 @@ class ChatbotGUI:
                                           command=self._on_back_to_setup)
         self.back_setup_btn2.pack(side=tk.LEFT)
 
+        self.copy_chat_btn = tk.Button(
+            self.chat_btn_frame, text="Copy Chat", font=("Arial", 10),
+            bg="#546E7A", fg="white", width=10, command=self._on_copy_chat
+        )
+        self.copy_chat_btn.pack(side=tk.LEFT, padx=(5, 0))
+
         self._register_dir_btn_frame(
             self.chat_btn_frame,
-            [self.mentor_btn, self.eval_btn, self.summary_btn, self.new_conv_btn, self.back_setup_btn2]
+            [self.mentor_btn, self.eval_btn, self.summary_btn, self.new_conv_btn, self.back_setup_btn2, self.copy_chat_btn]
         )
 
         # Animated progress bar for chat LLM calls (Sprint 3)
@@ -2337,6 +2345,21 @@ class ChatbotGUI:
                 f"  • Status: {'Active' if summary['is_active'] else 'Inactive'}"
             )
         self._set_mentor_panel(text, "summary")
+
+    def _on_copy_chat(self):
+        """Copy the visible chat transcript to the clipboard."""
+        transcript = self.chat_display.get("1.0", "end-1c").strip()
+        if not transcript:
+            self.chat_status_var.set("Nothing to copy")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(transcript)
+            self.root.update_idletasks()
+            self.chat_status_var.set("Chat copied to clipboard")
+        except Exception as e:
+            logger.error("Failed to copy chat transcript: %s", e)
+            self.chat_status_var.set("Copy failed")
 
     def _on_restart_chat(self):
         """Restart the chat session with the same topic."""
