@@ -30,3 +30,4 @@ htmlcov/
 # Project specific
 *.log
 test_output/
+sessions/
