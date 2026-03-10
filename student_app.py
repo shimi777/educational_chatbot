@@ -17,6 +17,9 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from cloud_helpers import sync_secrets_to_env
+sync_secrets_to_env()
+
 import streamlit as st
 
 st.set_page_config(
@@ -56,6 +59,7 @@ def _init_session_state() -> None:
         "teaching_minutes": app_config.default_teaching_minutes,
         "session_loaded": False,
         "session_id_input": "",
+        "student_name": "",
         # lesson
         "lesson_timer_start": None,
         "lesson_timer_seconds": app_config.default_prep_minutes * 60,
@@ -142,6 +146,11 @@ def _render_sidebar() -> None:
 def _screen_join() -> None:
     st.title(t("Join a Teaching Session", "הצטרף למפגש הוראה"))
 
+    # Auto-fill session ID from URL query parameter
+    query_session = st.query_params.get("session", "")
+    if query_session and not st.session_state.session_loaded:
+        st.session_state.session_id_input = query_session
+
     st.info(t(
         "Enter the session ID your teacher gave you.",
         "הזן את מזהה המפגש שהמורה שלך נתן לך.",
@@ -155,6 +164,14 @@ def _screen_join() -> None:
         key="sid_input",
     )
     st.session_state.session_id_input = sid
+
+    st.session_state.student_name = st.text_input(
+        t("Your name (optional)", "השם שלך (אופציונלי)"),
+        value=st.session_state.student_name,
+        max_chars=50,
+        placeholder=t("e.g. Dan", "לדוגמה: דן"),
+        key="name_input",
+    )
 
     if st.button(t("Join", "הצטרף"), type="primary",
                  use_container_width=True, key="btn_join"):
@@ -319,6 +336,39 @@ def _reset_to_join() -> None:
     nav("join")
 
 
+def _save_to_cloud(evaluation_result: dict, manager) -> None:
+    """Save evaluation scores to Google Sheets and transcript to Google Drive."""
+    from backend.config import config as app_config
+    if not app_config.google_spreadsheet_id:
+        return  # Cloud storage not configured
+
+    try:
+        from backend.google_storage import get_google_storage
+        gs = get_google_storage()
+        lang = st.session_state.lang
+        tc = st.session_state.topic_config
+
+        # Save evaluation scores to Sheets
+        gs.save_evaluation(
+            session_id=st.session_state.session_id_input,
+            student_name=st.session_state.get("student_name", "") or "anonymous",
+            evaluation_result=evaluation_result,
+            conversation_summary=manager.get_conversation_summary(),
+            lang=lang,
+        )
+
+        # Save transcript to Google Drive
+        transcript = _build_transcript(evaluation_result, tc, lang)
+        gs.save_transcript(
+            session_id=st.session_state.session_id_input,
+            student_name=st.session_state.get("student_name", "") or "anonymous",
+            transcript_text=transcript,
+        )
+        logger.info("Cloud save completed for session %s", st.session_state.session_id_input)
+    except Exception as exc:
+        logger.error("Cloud save failed (non-blocking): %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Screen 2: Chat
 # ---------------------------------------------------------------------------
@@ -465,6 +515,7 @@ def _screen_chat() -> None:
                             result = manager.evaluate_performance()
                             st.session_state.evaluation_result = result
                             st.session_state.session_ended = True
+                            _save_to_cloud(result, manager)
                         except Exception as exc:
                             logger.error("evaluate_performance failed: %s", exc)
                             st.error(t(f"Evaluation error: {exc}",
@@ -500,6 +551,7 @@ def _screen_chat() -> None:
                 result = manager.evaluate_performance()
                 st.session_state.evaluation_result = result
                 st.session_state.session_ended = True
+                _save_to_cloud(result, manager)
             except Exception as exc:
                 logger.error("Auto-evaluation failed: %s", exc)
                 st.error(t(f"Auto-evaluation failed: {exc}",

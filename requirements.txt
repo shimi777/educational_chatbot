@@ -22,6 +22,12 @@ tenacity>=8.2.0
 # Web-based frontend (alternative to tkinter)
 streamlit>=1.30.0
 
+# ---- Cloud Storage (Google Sheets + Drive) ----
+
+gspread>=6.0.0
+google-auth>=2.0.0
+google-api-python-client>=2.0.0
+
 # ---- Future (uncomment when needed) ----
 
 # Sprint 6 — Unit testing

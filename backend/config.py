@@ -58,6 +58,23 @@ class AppConfig(BaseSettings):
     default_language: str = Field("en", alias="DEFAULT_LANGUAGE")
     default_student_age: int = Field(10, alias="DEFAULT_STUDENT_AGE")
 
+    # ------------------------------------------------------------------ #
+    # Google Cloud Integration
+    # ------------------------------------------------------------------ #
+    google_spreadsheet_id: str = Field("", alias="GOOGLE_SPREADSHEET_ID")
+    google_drive_folder_id: str = Field("", alias="GOOGLE_DRIVE_FOLDER_ID")
+    google_credentials_file: str = Field("", alias="GOOGLE_CREDENTIALS_FILE")
+
+    # ------------------------------------------------------------------ #
+    # Teacher app security
+    # ------------------------------------------------------------------ #
+    teacher_password: str = Field("", alias="TEACHER_PASSWORD")
+
+    # ------------------------------------------------------------------ #
+    # Deployment
+    # ------------------------------------------------------------------ #
+    student_app_url: str = Field("http://localhost:8502", alias="STUDENT_APP_URL")
+
     model_config = {
         "env_file": str(_ENV_FILE),
         "env_file_encoding": "utf-8",

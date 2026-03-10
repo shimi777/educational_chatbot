@@ -17,6 +17,9 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from cloud_helpers import sync_secrets_to_env
+sync_secrets_to_env()
+
 import streamlit as st
 
 st.set_page_config(
@@ -37,6 +40,35 @@ from ui_helpers import t, inject_rtl_css, nav
 logger = get_logger(__name__)
 
 _MAX_MATERIAL_CHARS = 15_000
+
+
+# ---------------------------------------------------------------------------
+# Password gate
+# ---------------------------------------------------------------------------
+
+def _check_password() -> bool:
+    """Simple password gate for teacher access. Returns True if authenticated."""
+    from backend.config import config as app_config
+    password = app_config.teacher_password
+    if not password:
+        return True  # No password configured — open access
+
+    if st.session_state.get("teacher_authenticated", False):
+        return True
+
+    st.title(t("Teacher Login", "כניסת מורה"))
+    entered = st.text_input(
+        t("Password", "סיסמה"), type="password", key="teacher_pwd_input"
+    )
+    if st.button(t("Login", "כניסה"), type="primary", key="btn_login"):
+        if entered == password:
+            st.session_state.teacher_authenticated = True
+            st.rerun()
+        else:
+            st.error(t("Incorrect password.", "סיסמה שגויה."))
+    return False
+
+
 _SCREENS = ("setup", "settings", "share")
 
 # ---------------------------------------------------------------------------
@@ -442,13 +474,19 @@ def _screen_share() -> None:
     st.subheader(t("Session ID", "מזהה מפגש"))
     st.code(sid, language=None)
 
-    placeholder_link = f"http://your-server/student?session={sid}"
+    from backend.config import config as app_config
+    student_url = app_config.student_app_url
+    full_link = f"{student_url}/?session={sid}"
     st.text_input(
-        t("Student link (placeholder)", "קישור לתלמיד (מציין מיקום)"),
-        value=placeholder_link,
+        t("Student Link", "קישור לתלמיד"),
+        value=full_link,
         disabled=True,
         key="share_link",
     )
+    st.caption(t(
+        "Share this link with your students — they can click it to join directly.",
+        "שתף את הקישור הזה עם התלמידים שלך — הם יכולים ללחוץ עליו כדי להצטרף ישירות.",
+    ))
 
     st.divider()
     st.subheader(t("Session Summary", "סיכום מפגש"))
@@ -499,6 +537,10 @@ def _screen_share() -> None:
 def main() -> None:
     _init_session_state()
     inject_rtl_css()
+
+    if not _check_password():
+        return
+
     _render_sidebar()
 
     screen = st.session_state.current_screen
