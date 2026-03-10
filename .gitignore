@@ -38,3 +38,16 @@ sessions/
 # Google service account key (NEVER commit!)
 *service-account*.json
 *credentials*.json
+educational-chatbot*.json
+
+# Local state / scratch files
+last_topic.json
+topic_*.json
+evaluation_*.txt
+nul
+
+# pip install artifacts (e.g. pip install pkg==x.y.z typos)
+=*
+
+# Claude Code settings (local only)
+.claude/
