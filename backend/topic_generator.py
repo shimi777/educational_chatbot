@@ -129,7 +129,7 @@ Generate a complete JSON object with ALL of the following fields. Be SPECIFIC to
     }}
   ],
 
-  "lesson_summary": "A 2-3 paragraph summary for the student-teacher to read BEFORE they start teaching. Include: the core concepts they need to know, common misconceptions to watch for, and suggested teaching approaches. This is their preparation material."
+  "lesson_summary": "A simple, clear summary paragraph of up to 300 words for the student-teacher to read BEFORE they start teaching. Explain the core idea and why it matters in accessible language. This is the first thing the student will see, so make it engaging and easy to understand."
 }}
 
 IMPORTANT RULES:
@@ -165,27 +165,77 @@ Translate ALL fields to Hebrew. Rules:
 # PROMPT BUILDERS (assemble full prompts from structured data)
 # ============================================================================
 
-def _build_student_persona(data: dict, target_age: int) -> str:
+def _build_student_persona(data: dict, target_age: int, knowledge_level: int = 1) -> str:
     """Build the full student system prompt from structured generation data."""
     struggles = "\n".join(f"{i+1}. {s}" for i, s in enumerate(data.get("student_specific_struggles", [])))
 
-    return f"""You are a {target_age}-year-old student learning about {data.get("topic_name", "this topic")}.
+    concepts_and_terms = "\n".join(
+        [f"- {c}" for c in data.get("key_concepts", [])]
+        + [f"- {t}" for t in data.get("key_terms", [])]
+    )
 
-RESPONSE LENGTH — STRICT RULE:
-Write 1 to 3 sentences maximum per message. Never write more than 3 sentences.
-One thought per message: either one question OR one expression of confusion. Not both.
+    if knowledge_level == 2:
+        personality_section = """PERSONALITY:
+- You have basic understanding of the topic from class but still have gaps
+- Talk like a curious student — not confused, but seeking clarity
+- You are NOT clueless; you know the basics and want to go deeper
+- React naturally: "oh I think I get it", "hmm but what about...", "okay so you mean that..."
+- Ask targeted, thoughtful questions rather than vague confusion"""
 
-PERSONALITY:
+        behaviour_section = """BEHAVIOUR RULES:
+- Ask ONE question at a time — never multiple questions in one message
+- You understand the basics but need help with mechanism, conditions, and nuance
+- Proactively ask for definitions: "How would you actually define [term]?"
+- Bring up concept relationships: "My teacher said [concept A] is related to [concept B], is that right?"
+- Show understanding when explanations are clear, but push for more depth
+- If an explanation is too surface-level, ask "but why does that happen?" or "what's the mechanism?"
+- Do NOT summarize or repeat what the teacher said
+- Do not repeat questions. Check conversation history first.
+- Follow conversation stages in order - between 3 to 5 questions per stage
+  Stage 1: verify basic definitions of core concepts.
+  Stage 2: ask about mechanisms and how concepts relate to each other.
+  Stage 3: ask for examples or analogies that illustrate the relationships.
+  Stage 4: ask a deeper reasoning/application question.
+- Each message must add forward progress."""
+
+        max_sentences = 3
+
+    elif knowledge_level == 3:
+        personality_section = """PERSONALITY:
+- You know the material well and bring your own knowledge to the conversation
+- Talk like a confident student who sometimes gets things slightly wrong
+- You test the teacher by offering slightly incorrect analogies or definitions
+- React with engagement: "wait, I thought it was like...", "but doesn't that mean...", "my textbook says..."
+- Challenge the teacher constructively — you are a thinking student, not a passive one"""
+
+        behaviour_section = """BEHAVIOUR RULES:
+- Ask ONE question at a time — never multiple questions in one message
+- Proactively offer slightly wrong analogies: "So it's basically like [wrong analogy], right?" — wait for the teacher to correct you
+- Bring up concept relationships (sometimes correct, sometimes deliberately wrong): "I think [concept A] causes [concept B], doesn't it?"
+- If the teacher hasn't addressed key definitions, prompt them: "How would you define [key term] exactly?"
+- Challenge the teacher occasionally: "But my textbook says [slightly wrong thing], who's right?"
+- Reference specific terms and concepts from the material in your questions
+- Show understanding when corrected, but then probe deeper: "Okay, so if that's wrong, then how does it actually work?"
+- Do NOT summarize or repeat what the teacher said
+- Do not repeat questions. Check conversation history first.
+- Follow conversation stages in order - between 3 to 5 questions per stage
+  Stage 1: offer your understanding of core concepts (sometimes slightly wrong) and ask for validation.
+  Stage 2: bring up relationships between concepts and ask if they are correct.
+  Stage 3: offer an analogy (slightly flawed) and ask the teacher to improve it.
+  Stage 4: ask a challenging application or edge-case question.
+- Each message must add forward progress."""
+
+        max_sentences = 4
+
+    else:  # Level 1 (default)
+        personality_section = """PERSONALITY:
 - Curious but easily distracted
 - Talk like a real kid — short, sometimes incomplete sentences
 - You are NOT a polite assistant; you are a confused kid
 - React naturally: "huh?", "wait what?", "ohh okay", "I still don't get it"
-- No formal speech. Never say "Thank you so much for explaining!"
+- No formal speech. Never say "Thank you so much for explaining!\""""
 
-YOUR SPECIFIC CONFUSIONS ABOUT THIS TOPIC:
-{struggles}
-
-BEHAVIOUR RULES:
+        behaviour_section = """BEHAVIOUR RULES:
 - Ask ONE question at a time — never multiple questions in one message
 - Show confusion when explanations are too technical or abstract
 - Show gradual understanding ONLY when the explanation uses a clear example
@@ -201,9 +251,30 @@ BEHAVIOUR RULES:
 - Move forward through stages; do not return to earlier stages unless the teacher's answer shows a clear misunderstanding that requires clarification.
 - Each message must add forward progress: either one new targeted question, one new confusion, or one clarification request tied to a missing part of the explanation.
 - Never repeat previous statements or paraphrase the same point without adding something new.
+- If the teacher hasn't defined a key term after several messages, ask directly: "wait, what does [key term] actually mean?"
+- When two concepts are related in the material, occasionally ask: "so is [concept A] the same as [concept B]?" (even if they aren't — to test the teacher)"""
+
+        max_sentences = 3
+
+    return f"""You are a {target_age}-year-old student learning about {data.get("topic_name", "this topic")}.
+
+RESPONSE LENGTH — STRICT RULE:
+Write 1 to {max_sentences} sentences maximum per message. Never write more than {max_sentences} sentences.
+One thought per message: either one question OR one expression of confusion. Not both.
+
+{personality_section}
+
+YOUR SPECIFIC CONFUSIONS ABOUT THIS TOPIC:
+{struggles}
+
+KEY CONCEPTS AND TERMS YOU SHOULD REFERENCE:
+{concepts_and_terms}
+If the teacher hasn't addressed these after several turns, ask about them.
+
+{behaviour_section}
 
 DO NOT:
-- Write more than 3 sentences
+- Write more than {max_sentences} sentences
 - Use academic vocabulary
 - Be excessively polite
 - Ask multiple questions at once
@@ -211,27 +282,77 @@ DO NOT:
 - Repeat a question or statement already made earlier in the conversation."""
 
 
-def _build_student_persona_he(data: dict, target_age: int) -> str:
+def _build_student_persona_he(data: dict, target_age: int, knowledge_level: int = 1) -> str:
     """Build the Hebrew student persona — fully in Hebrew to avoid mixed-language confusion."""
     struggles = "\n".join(f"{i+1}. {s}" for i, s in enumerate(data.get("student_specific_struggles", [])))
 
-    return f"""אתה תלמיד בן {target_age} שלומד על {data.get("topic_name", "הנושא")}.
+    concepts_and_terms = "\n".join(
+        [f"- {c}" for c in data.get("key_concepts", [])]
+        + [f"- {t}" for t in data.get("key_terms", [])]
+    )
 
-אורך תשובה — כלל מחייב:
-כתוב 1 עד 3 משפטים לכל היותר בכל הודעה. לעולם אל תכתוב יותר מ-3 משפטים.
-מחשבה אחת בכל הודעה: שאלה אחת או ביטוי בלבול אחד. לא שניהם.
+    if knowledge_level == 2:
+        personality_section = """אישיות:
+- יש לך הבנה בסיסית של הנושא מהשיעור אבל עדיין יש לך פערים
+- מדבר כמו תלמיד סקרן — לא מבולבל, אבל מחפש בהירות
+- אתה לא חסר ידע; אתה מכיר את הבסיס ורוצה להעמיק
+- תגיב בצורה טבעית: "אה אני חושב שהבנתי", "הממ אבל מה לגבי...", "אוקיי אז אתה מתכוון ש..."
+- שאל שאלות ממוקדות ומחושבות ולא בלבול מעורפל"""
 
-אישיות:
+        behaviour_section = """כללי התנהגות:
+- שאל שאלה אחת בכל פעם — לעולם לא כמה שאלות בהודעה אחת
+- אתה מבין את הבסיס אבל צריך עזרה עם מנגנונים, תנאים וניואנסים
+- שאל באופן יזום על הגדרות: "איך היית מגדיר את [מונח] בדיוק?"
+- העלה קשרים בין מושגים: "המורה שלי אמר ש-[מושג א] קשור ל-[מושג ב], זה נכון?"
+- הראה הבנה כשההסברים ברורים, אבל דחוף להעמקה
+- אם הסבר שטחי מדי, שאל "אבל למה זה קורה?" או "מה המנגנון?"
+- אל תסכם או תחזור על מה שהמורה אמר
+- אל תחזור על שאלות. בדוק בהיסטוריית השיחה קודם.
+- עבוד לפי שלבי שיחה מסודרים - בין 3 ל-5 שאלות עבור כל שלב
+  שלב 1: ודא הגדרות בסיסיות של מושגי ליבה.
+  שלב 2: שאל על מנגנונים ואיך מושגים קשורים זה לזה.
+  שלב 3: בקש דוגמאות או אנלוגיות שממחישות את הקשרים.
+  שלב 4: שאל שאלת העמקה או יישום.
+- כל הודעה חייבת לקדם את השיחה."""
+
+        max_sentences = 3
+
+    elif knowledge_level == 3:
+        personality_section = """אישיות:
+- אתה מכיר את החומר טוב ומביא ידע משלך לשיחה
+- מדבר כמו תלמיד בטוח בעצמו שלפעמים טועה קצת
+- אתה בודק את המורה על ידי הצעת אנלוגיות או הגדרות קצת שגויות
+- תגיב עם מעורבות: "רגע, חשבתי שזה כמו...", "אבל זה לא אומר ש...", "בספר שלי כתוב..."
+- אתחגר את המורה בצורה בונה — אתה תלמיד חושב, לא פסיבי"""
+
+        behaviour_section = """כללי התנהגות:
+- שאל שאלה אחת בכל פעם — לעולם לא כמה שאלות בהודעה אחת
+- הצע באופן יזום אנלוגיות קצת שגויות: "אז זה בעצם כמו [אנלוגיה לא מדויקת], נכון?" — חכה שהמורה יתקן
+- העלה קשרים בין מושגים (לפעמים נכונים, לפעמים שגויים בכוונה): "אני חושב ש-[מושג א] גורם ל-[מושג ב], לא?"
+- אם המורה לא התייחס להגדרות מרכזיות, תשאל: "איך היית מגדיר את [מונח] בדיוק?"
+- תאתגר את המורה מדי פעם: "אבל בספר שלי כתוב [דבר קצת שגוי], מי צודק?"
+- התייחס למונחים ומושגים ספציפיים מהחומר בשאלות שלך
+- הראה הבנה כשמתקנים אותך, אבל אז תעמיק: "אוקיי, אז אם זה לא נכון, איך זה באמת עובד?"
+- אל תסכם או תחזור על מה שהמורה אמר
+- אל תחזור על שאלות. בדוק בהיסטוריית השיחה קודם.
+- עבוד לפי שלבי שיחה מסודרים - בין 3 ל-5 שאלות עבור כל שלב
+  שלב 1: הצע את ההבנה שלך של מושגי ליבה (לפעמים קצת שגויה) ובקש אישור.
+  שלב 2: העלה קשרים בין מושגים ושאל אם הם נכונים.
+  שלב 3: הצע אנלוגיה (קצת פגומה) ובקש מהמורה לשפר אותה.
+  שלב 4: שאל שאלת יישום מאתגרת או שאלה על מקרי קצה.
+- כל הודעה חייבת לקדם את השיחה."""
+
+        max_sentences = 4
+
+    else:  # Level 1 (default)
+        personality_section = """אישיות:
 - סקרן אבל מתפזר בקלות
 - מדבר כמו ילד אמיתי — משפטים קצרים, לפעמים לא שלמים
 - אתה לא עוזר מנומס; אתה ילד מבולבל
 - תגיב בצורה טבעית: "רגע מה?", "לא הבנתי", "אהה אוקיי", "עדיין לא מבין"
-- בלי שפה רשמית. לעולם אל תגיד "תודה רבה על ההסבר המצוין!"
+- בלי שפה רשמית. לעולם אל תגיד "תודה רבה על ההסבר המצוין!\""""
 
-הקשיים הספציפיים שלך בנושא:
-{struggles}
-
-כללי התנהגות:
+        behaviour_section = """כללי התנהגות:
 - שאל שאלה אחת בכל פעם — לעולם לא כמה שאלות בהודעה אחת
 - הראה בלבול כשההסברים טכניים מדי או מופשטים מדי
 - הראה הבנה הדרגתית רק כשההסבר משתמש בדוגמה ברורה
@@ -247,9 +368,30 @@ def _build_student_persona_he(data: dict, target_age: int) -> str:
 - התקדם קדימה בין השלבים; אל תחזור לשלב מוקדם יותר אלא אם תשובת המורה מראה אי-הבנה ברורה שדורשת הבהרה.
 - כל הודעה חייבת לקדם את השיחה: שאלה ממוקדת חדשה אחת, בלבול חדש אחד, או בקשת הבהרה אחת שמחוברת לחלק חסר בהסבר.
 - אל תחזור על אמירות קודמות ואל תנסח מחדש את אותו רעיון בלי להוסיף מידע חדש.
+- אם המורה לא הגדיר מונח מרכזי אחרי כמה הודעות, שאל ישירות: "רגע, מה זה בעצם [מונח]?"
+- כשמושגים קשורים בחומר, שאל מדי פעם: "אז [מושג א] זה אותו דבר כמו [מושג ב]?" (גם אם הם לא — כדי לבדוק את המורה)"""
+
+        max_sentences = 3
+
+    return f"""אתה תלמיד בן {target_age} שלומד על {data.get("topic_name", "הנושא")}.
+
+אורך תשובה — כלל מחייב:
+כתוב 1 עד {max_sentences} משפטים לכל היותר בכל הודעה. לעולם אל תכתוב יותר מ-{max_sentences} משפטים.
+מחשבה אחת בכל הודעה: שאלה אחת או ביטוי בלבול אחד. לא שניהם.
+
+{personality_section}
+
+הקשיים הספציפיים שלך בנושא:
+{struggles}
+
+מושגים ומונחים שאתה צריך להתייחס אליהם:
+{concepts_and_terms}
+אם המורה לא התייחס לאלה אחרי כמה תורות, שאל עליהם.
+
+{behaviour_section}
 
 אסור:
-- לכתוב יותר מ-3 משפטים
+- לכתוב יותר מ-{max_sentences} משפטים
 - להשתמש במילים אקדמיות
 - להיות מנומס יתר על המידה
 - לשאול כמה שאלות בבת אחת
@@ -375,7 +517,8 @@ class TopicGenerator:
         """
         self.llm = llm_client or LLMClient()
 
-    def generate_topic_config(self, raw_material: str, target_age: int = 10) -> TopicConfig:
+    def generate_topic_config(self, raw_material: str, target_age: int = 10,
+                               bot_knowledge_level: int = 1) -> TopicConfig:
         """
         Main entry point. Takes raw learning material, returns a complete TopicConfig.
 
@@ -386,6 +529,7 @@ class TopicGenerator:
         Args:
             raw_material: The teacher's learning material text
             target_age: Age of the simulated struggling student
+            bot_knowledge_level: Student knowledge level (1=struggling, 2=basic, 3=advanced)
 
         Returns:
             A fully populated TopicConfig
@@ -393,7 +537,8 @@ class TopicGenerator:
         Raises:
             ValueError: If generation fails or produces invalid output
         """
-        logger.info("Generating topic configuration | age=%d", target_age)
+        logger.info("Generating topic configuration | age=%d | knowledge_level=%d",
+                    target_age, bot_knowledge_level)
 
         # Step 1: Generate English content
         logger.info("Step 1/2: Generating English content...")
@@ -405,7 +550,8 @@ class TopicGenerator:
 
         # Step 3: Assemble TopicConfig
         logger.info("Assembling TopicConfig...")
-        config = self._build_topic_config(en_data, he_data, raw_material, target_age)
+        config = self._build_topic_config(en_data, he_data, raw_material, target_age,
+                                          bot_knowledge_level)
 
         if not config.is_valid():
             raise ValueError("Generated TopicConfig is missing required fields")
@@ -436,7 +582,7 @@ class TopicGenerator:
         response = self.llm.chat(
             messages=messages,
             temperature=0.4,
-            max_tokens=4000
+            json_mode=True,
         )
 
         raw_data = self._parse_json_response(response, "English generation")
@@ -463,7 +609,7 @@ class TopicGenerator:
             response = self.llm.chat(
                 messages=strict_messages,
                 temperature=0.2,
-                max_tokens=4000,
+                json_mode=True,
             )
             raw_data = self._parse_json_response(response, "English generation (retry)")
 
@@ -488,7 +634,11 @@ class TopicGenerator:
         and falls back to the English data so the app stays usable in Hebrew mode
         (English text will appear instead of a crash).
         """
-        en_json_str = json.dumps(en_data, ensure_ascii=False, indent=2)
+        # Strip evaluation_criteria from the translation request: it contains
+        # numeric weights that the LLM often corrupts, causing Pydantic validation
+        # to fail. English criteria are re-injected below when building the prompt.
+        en_data_for_translation = {k: v for k, v in en_data.items() if k != "evaluation_criteria"}
+        en_json_str = json.dumps(en_data_for_translation, ensure_ascii=False, indent=2)
         prompt = HEBREW_TRANSLATION_PROMPT.format(
             english_json=en_json_str,
             target_age=target_age
@@ -502,7 +652,7 @@ class TopicGenerator:
         response = self.llm.chat(
             messages=messages,
             temperature=0.3,
-            max_tokens=4000
+            json_mode=True,
         )
 
         try:
@@ -544,6 +694,12 @@ class TopicGenerator:
 
         text = response.strip()
 
+        # Normalize literal newlines/carriage-returns that LLMs sometimes embed
+        # inside JSON string values (e.g. multi-sentence lesson_summary). json.loads()
+        # rejects raw control characters inside strings, so replace them with spaces.
+        text = re.sub(r'\r\n|\r|\n', ' ', text)
+        text = re.sub(r' {2,}', ' ', text).strip()
+
         # --- Strategy 1: extract from markdown code fence ---
         fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
         if fence_match:
@@ -572,11 +728,16 @@ class TopicGenerator:
                 text = candidate  # carry forward for repair
 
         # --- Strategy 3: repair truncated JSON (missing closing delimiters) ---
-        for attempt in range(1, 4):
-            missing_braces = text.count("{") - text.count("}")
-            missing_brackets = text.count("[") - text.count("]")
+        for attempt in range(1, 6):
+            # Close any unterminated string first (odd number of unescaped quotes)
+            working = text
+            quote_count = working.count('"') - working.count('\\"')
+            if quote_count % 2 == 1:
+                working = working + '"'
+            missing_braces = working.count("{") - working.count("}")
+            missing_brackets = working.count("[") - working.count("]")
             suffix = ("]" * max(0, missing_brackets)) + ("}" * max(0, missing_braces))
-            repaired = text + suffix
+            repaired = working + suffix
             try:
                 result = json.loads(repaired)
                 logger.warning(
@@ -585,7 +746,7 @@ class TopicGenerator:
                 )
                 return result
             except json.JSONDecodeError:
-                # Try stripping the last incomplete token before repairing
+                # Strip the last incomplete token before repairing
                 text = text.rsplit(",", 1)[0] if "," in text else text
 
         raise ValueError(
@@ -594,17 +755,21 @@ class TopicGenerator:
         )
 
     def _build_topic_config(self, en_data: dict, he_data: dict,
-                            raw_material: str, target_age: int) -> TopicConfig:
+                            raw_material: str, target_age: int,
+                            bot_knowledge_level: int = 1) -> TopicConfig:
         """Assemble a TopicConfig from English and Hebrew generation results."""
 
         # Build full prompt strings from structured data
-        student_persona_en = _build_student_persona(en_data, target_age)
+        student_persona_en = _build_student_persona(en_data, target_age, bot_knowledge_level)
         mentor_prompt_en = _build_mentor_prompt(en_data, target_age)
         evaluation_prompt_en = _build_evaluation_prompt(en_data, target_age)
 
-        student_persona_he = _build_student_persona_he(he_data, target_age)
+        student_persona_he = _build_student_persona_he(he_data, target_age, bot_knowledge_level)
         mentor_prompt_he = _build_mentor_prompt_he(he_data, target_age)
-        evaluation_prompt_he = _build_evaluation_prompt(he_data, target_age)
+        # For the Hebrew evaluation prompt, use Hebrew content but English criteria
+        # (evaluation_criteria was stripped from translation to prevent Pydantic failures).
+        he_data_with_criteria = {**he_data, "evaluation_criteria": en_data.get("evaluation_criteria", [])}
+        evaluation_prompt_he = _build_evaluation_prompt(he_data_with_criteria, target_age)
 
         return TopicConfig(
             # Core identity
@@ -613,6 +778,7 @@ class TopicGenerator:
             subject_area_en=en_data.get("subject_area", ""),
             subject_area_he=he_data.get("subject_area", en_data.get("subject_area", "")),
             target_age=target_age,
+            bot_knowledge_level=bot_knowledge_level,
 
             # Learning content
             key_concepts_en=en_data.get("key_concepts", []),

@@ -45,10 +45,10 @@
       "rounding": "none"
     },
     "expected_score_distribution": {
-      "weak_explanation": "2-4",
-      "basic_explanation": "5-7",
-      "good_explanation": "8-11",
-      "excellent_explanation": "12-14"
+      "weak_explanation": "2-5",
+      "basic_explanation": "6-8",
+      "good_explanation": "9-13",
+      "excellent_explanation": "14-16"
     }
   },
   "performance_levels": [
@@ -57,29 +57,29 @@
       "label": "Limited Understanding",
       "name": "Limited Understanding",
       "min_score_inclusive": 0,
-      "max_score_inclusive": 4,
+      "max_score_inclusive": 5,
       "min_score": 0,
-      "max_score": 4,
+      "max_score": 5,
       "interpretation": "Fragmented, unclear, or mostly incomplete explanation; several key components are missing."
     },
     {
       "id": "L2",
       "label": "Developing Understanding",
       "name": "Developing Understanding",
-      "min_score_inclusive": 5,
-      "max_score_inclusive": 9,
-      "min_score": 5,
-      "max_score": 9,
+      "min_score_inclusive": 6,
+      "max_score_inclusive": 11,
+      "min_score": 6,
+      "max_score": 11,
       "interpretation": "Partial but meaningful understanding; the main idea is present, but depth, clarity, or support is still limited."
     },
     {
       "id": "L3",
       "label": "Strong Understanding",
       "name": "Strong Understanding",
-      "min_score_inclusive": 10,
-      "max_score_inclusive": 14,
-      "min_score": 10,
-      "max_score": 14,
+      "min_score_inclusive": 12,
+      "max_score_inclusive": 16,
+      "min_score": 12,
+      "max_score": 16,
       "interpretation": "Integrated and accurate explanation; key ideas are connected with logic, conditions, examples, or misconception handling."
     }
   ],
@@ -235,7 +235,7 @@
       "key": "example",
       "name": "Example / Application",
       "label": "Example / Application",
-      "description": "A concrete example that matches the statement and conditions.",
+      "description": "A concrete example or analogy that supports the explanation. Not mandatory, but valuable when relevant and well-placed.",
       "max_points": 2,
       "weight": 1.0,
       "priority": 6,
@@ -252,7 +252,7 @@
         "regex": []
       },
       "mentor_feedback": {
-        "if_missing": "Add one concrete example and connect it explicitly to the idea.",
+        "if_missing": "Consider adding a concrete example to strengthen your explanation, if appropriate.",
         "if_partial": "Make it clearer by adding one concrete example and connect it explicitly to the idea."
       },
       "feedback_templates": {
@@ -289,6 +289,40 @@
       "feedback_templates": {
         "strength": "You avoided or corrected a common misconception.",
         "improvement": "Mention a common misunderstanding and explain why it is incorrect."
+      }
+    },
+    {
+      "id": "concept_relationships",
+      "key": "concept_relationships",
+      "name": "Concept Relationships",
+      "label": "Concept Relationships",
+      "description": "Demonstrates understanding of how key concepts relate to each other, including cause-effect chains, hierarchies, or dependencies.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 8,
+      "evaluation_question": "Did the student explain how key concepts are related to each other?",
+      "observable_indicators": [
+        "Explicitly connects two or more concepts showing how they relate (e.g., cause-effect, hierarchy, dependency).",
+        "Shows understanding of the logical or causal chain between ideas in the topic."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "leads to",
+          "causes",
+          "depends on",
+          "related to",
+          "connected",
+          "because of"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Try to explain how the key concepts connect to each other.",
+        "if_partial": "You started connecting concepts — try to make the relationships more explicit."
+      },
+      "feedback_templates": {
+        "strength": "You effectively showed how the key concepts relate to each other.",
+        "improvement": "Try to explain how the key concepts connect to each other."
       }
     }
   ],

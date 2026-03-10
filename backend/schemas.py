@@ -104,7 +104,8 @@ class HebrewTranslationResponse(BaseModel):
     good_explanation_indicators: List[str] = Field(min_length=1)
     bad_explanation_indicators: List[str] = Field(min_length=1)
 
-    evaluation_criteria: List[EvaluationCriterion] = Field(min_length=1)
+    # Optional: stripped from translation request to prevent weight-validation failures.
+    evaluation_criteria: List[EvaluationCriterion] = Field(default_factory=list)
 
     lesson_summary: str = Field(min_length=5)
 

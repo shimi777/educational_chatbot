@@ -41,6 +41,7 @@ from ui_helpers import (
     t, inject_rtl_css, nav,
     format_time, remaining_seconds,
     component_label, performance_level_label,
+    verbal_score_label,
 )
 
 logger = get_logger(__name__)
@@ -254,26 +255,34 @@ def _screen_lesson() -> None:
 
     st.divider()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader(t("Key Concepts", "מושגים מרכזיים"))
-        for concept in tc.get_key_concepts(lang):
-            st.markdown(f"- {concept}")
-        st.subheader(t("Key Terms", "מונחים מרכזיים"))
-        for term in tc.get_key_terms(lang):
-            st.markdown(f"- {term}")
-    with col2:
-        st.subheader(t("Common Misconceptions", "תפיסות שגויות נפוצות"))
-        for misc in tc.get_misconceptions(lang):
-            st.warning(misc)
-        st.subheader(t("Good Examples & Analogies", "דוגמאות ואנלוגיות טובות"))
-        for ex in tc.get_good_examples(lang):
-            st.markdown(f"- {ex}")
-
-    st.divider()
+    # 1. Lesson Summary (first thing student sees)
     st.subheader(t("Lesson Summary", "סיכום השיעור"))
     st.markdown(tc.get_lesson_summary(lang))
     st.divider()
+
+    # 2. Key Concepts & Terms (merged)
+    st.subheader(t("Key Concepts & Terms", "מושגים ומונחי מפתח"))
+    for concept in tc.get_key_concepts(lang):
+        st.markdown(f"- {concept}")
+    for term in tc.get_key_terms(lang):
+        st.markdown(f"- {term}")
+    st.divider()
+
+    # 3. Examples & Analogies
+    examples = tc.get_good_examples(lang)
+    if examples:
+        st.subheader(t("Examples & Analogies", "דוגמאות ואנלוגיות"))
+        for ex in examples:
+            st.info(ex)
+        st.divider()
+
+    # 4. Common Misconceptions (last)
+    misconceptions = tc.get_misconceptions(lang)
+    if misconceptions:
+        st.subheader(t("Common Misconceptions — Watch For", "תפיסות שגויות נפוצות — שימו לב"))
+        for misc in misconceptions:
+            st.warning(misc)
+        st.divider()
 
     if st.button(t("Start Teaching", "התחל הוראה"), type="primary",
                  use_container_width=True, key="lesson_start_teach"):
@@ -598,85 +607,34 @@ def _screen_evaluation() -> None:
 
     st.divider()
 
-    # Score gauge
+    # Score percentage (needed for color logic below)
     score_pct = (total_score / max_score) if max_score else 0.0
-    if score_pct >= 0.7:
-        gauge_color, gauge_emoji = "green", "🟢"
-    elif score_pct >= 0.4:
-        gauge_color, gauge_emoji = "orange", "🟡"
-    else:
-        gauge_color, gauge_emoji = "red", "🔴"
 
+    # Performance level — verbal only
     st.markdown(
-        f'<p style="font-size:1rem;color:{gauge_color};font-weight:bold;">'
-        f"{gauge_emoji} {perf_level} — {total_score}/{max_score} "
-        + t("points", "נקודות") + "</p>",
+        f'<h3 style="color:{"green" if score_pct >= 0.7 else "orange" if score_pct >= 0.4 else "red"};">'
+        f'{perf_level}</h3>',
         unsafe_allow_html=True,
     )
-    st.progress(score_pct)
     st.divider()
 
-    # Metrics
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.metric(
-            label=t("Total Score", "ציון כולל"),
-            value=f"{total_score} / {max_score}",
-            delta=(
-                f"+{improvement['score_delta']}" if improvement and improvement["score_delta"] > 0
-                else (str(improvement["score_delta"]) if improvement else None)
-            ),
-        )
-    with m2:
-        st.metric(label=t("Performance Level", "רמת ביצועים"), value=perf_level)
-    with m3:
-        st.metric(
-            label=t("Misconceptions Detected", "תפיסות שגויות שזוהו"),
-            value=misconceptions_count,
-            delta=improvement["misconceptions_delta"] if improvement else None,
-            delta_color="inverse",
-        )
-
-    st.divider()
-
-    # Component scores
+    # Per-component verbal feedback
     if component_scores:
-        st.subheader(t("Component Scores", "ציוני רכיבים"))
+        st.subheader(t("Evaluation by Category", "הערכה לפי קטגוריה"))
         for comp_key, score in component_scores.items():
             label = component_label(comp_key)
-            pct = score / 2.0
-            col_label, col_bar, col_score = st.columns([2, 4, 1])
-            with col_label:
-                st.markdown(f"**{label}**")
-            with col_bar:
-                st.progress(pct)
-            with col_score:
-                sc = "green" if score == 2 else "orange" if score == 1 else "red"
-                st.markdown(
-                    f'<span style="color:{sc};font-weight:bold;">{score}/2</span>',
-                    unsafe_allow_html=True,
-                )
-
-        if improvement:
-            st.divider()
-            st.subheader(t("Improvement vs First Explanation",
-                           "שיפור לעומת ההסבר הראשון"))
-            ic1, ic2, ic3 = st.columns(3)
-            d_s = improvement.get("score_delta", 0)
-            d_c = improvement.get("correct_components_delta", 0)
-            d_m = improvement.get("misconceptions_delta", 0)
-            with ic1:
-                st.metric(t("Score change", "שינוי ציון"),
-                          value=f"{'+' if d_s >= 0 else ''}{d_s}", delta=d_s)
-            with ic2:
-                st.metric(t("Correct components change", "שינוי ברכיבים נכונים"),
-                          value=f"{'+' if d_c >= 0 else ''}{d_c}", delta=d_c)
-            with ic3:
-                st.metric(t("Misconceptions change", "שינוי בתפיסות שגויות"),
-                          value=f"{'+' if d_m >= 0 else ''}{d_m}", delta=d_m,
-                          delta_color="inverse")
-        elif comparison and comparison.get("reason"):
-            st.info(comparison["reason"])
+            verbal = verbal_score_label(score)
+            if score == 2:
+                icon, color = "✅", "green"
+            elif score == 1:
+                icon, color = "🔶", "orange"
+            else:
+                icon, color = "🔴", "red"
+            st.markdown(
+                f'<p><strong>{label}</strong> — '
+                f'<span style="color:{color};">{icon} {verbal}</span></p>',
+                unsafe_allow_html=True,
+            )
 
     if notes:
         st.divider()
@@ -841,8 +799,8 @@ def _screen_retrospective() -> None:
     total_score = result.get("total_score", 0)
     max_score = result.get("max_score", 0)
     perf_level = performance_level_label(result.get("performance_level", ""))
-    st.info(t(f"Your score: {total_score}/{max_score} — {perf_level}",
-              f"הציון שלך: {total_score}/{max_score} — {perf_level}"))
+    st.info(t(f"Your performance level: {perf_level}",
+              f"רמת הביצועים שלך: {perf_level}"))
 
     chat_msgs = st.session_state.get("chat_messages", [])
     if chat_msgs:

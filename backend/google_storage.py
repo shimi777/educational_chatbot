@@ -57,26 +57,28 @@ class GoogleStorage:
     @staticmethod
     def _get_credentials() -> Credentials:
         """Load Google credentials from st.secrets or local JSON file."""
-        # 1. Try st.secrets (Streamlit Cloud)
+        # 1. Try st.secrets (Streamlit Cloud) — catch any exception, not just KeyError
         try:
             creds_dict = dict(st.secrets["gcp_service_account"])
             return Credentials.from_service_account_info(creds_dict, scopes=_SCOPES)
-        except (KeyError, FileNotFoundError):
+        except Exception:
             pass
 
-        # 2. Try local JSON file (development)
+        # 2. Try local JSON file (development, GOOGLE_CREDENTIALS_FILE in .env)
         from backend.config import config
         from pathlib import Path
 
         creds_file = config.google_credentials_file
         if creds_file and Path(creds_file).exists():
+            logger.info("Using local credentials file: %s", creds_file)
             return Credentials.from_service_account_file(
                 str(creds_file), scopes=_SCOPES
             )
 
         raise ValueError(
             "No Google credentials found. "
-            "Set st.secrets['gcp_service_account'] or GOOGLE_CREDENTIALS_FILE env var."
+            "Set st.secrets['gcp_service_account'] (cloud) or "
+            "GOOGLE_CREDENTIALS_FILE in .env (local)."
         )
 
     # ------------------------------------------------------------------

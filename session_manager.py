@@ -19,9 +19,23 @@ _SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
 
 
 def _use_cloud() -> bool:
-    """Return True if Google Sheets storage is configured."""
+    """Return True if Google Sheets storage is configured AND accessible."""
     from backend.config import config
-    return bool(config.google_spreadsheet_id)
+    if not config.google_spreadsheet_id:
+        return False
+    try:
+        import gspread  # noqa: F401
+    except ModuleNotFoundError:
+        logger.warning("gspread not installed — falling back to local session storage.")
+        return False
+    # Also verify credentials are reachable before committing to cloud mode
+    try:
+        from backend.google_storage import GoogleStorage
+        GoogleStorage._get_credentials()
+        return True
+    except Exception as exc:
+        logger.warning("Google credentials unavailable (%s) — falling back to local storage.", exc)
+        return False
 
 
 def generate_session_id() -> str:

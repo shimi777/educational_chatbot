@@ -28,6 +28,13 @@ COMPONENT_LABELS_HE: dict[str, str] = {
     "distinctions": "הבחנות מושגיות",
     "example": "דוגמה / יישום",
     "misconceptions": "טיפול בתפיסות שגויות",
+    "concept_relationships": "קשרים בין מושגים",
+}
+
+VERBAL_SCORE_LABELS = {
+    0: {"en": "Needs attention", "he": "דורש תשומת לב"},
+    1: {"en": "Partially demonstrated", "he": "הודגם חלקית"},
+    2: {"en": "Well demonstrated", "he": "הודגם היטב"},
 }
 
 PERFORMANCE_LEVELS_HE: dict[str, str] = {
@@ -49,6 +56,13 @@ def performance_level_label(level: str) -> str:
     if st.session_state.get("lang") == "he":
         return PERFORMANCE_LEVELS_HE.get(level, level)
     return level
+
+
+def verbal_score_label(score: int) -> str:
+    """Map a 0-2 component score to a verbal label, respecting language."""
+    lang = st.session_state.get("lang", "en")
+    entry = VERBAL_SCORE_LABELS.get(min(2, max(0, score)), VERBAL_SCORE_LABELS[0])
+    return entry[lang]
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ Improvements over the prototype:
 - Hard timeout on every API call (default 60 s)
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
 from tenacity import (
@@ -90,7 +90,8 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 500,
+        max_tokens: Optional[int] = None,
+        json_mode: bool = False,
     ) -> str:
         """
         Send chat messages to the LLM and return the response text.
@@ -113,7 +114,7 @@ class LLMClient:
             InvalidRequestError) or the last retryable exception after all
             attempts are exhausted.
         """
-        return self._chat_with_retry(messages, temperature, max_tokens)
+        return self._chat_with_retry(messages, temperature, max_tokens, json_mode)
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE),
@@ -126,23 +127,28 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: float,
-        max_tokens: int,
+        max_tokens: Optional[int],
+        json_mode: bool = False,
     ) -> str:
         """Internal method decorated with retry logic."""
         logger.debug(
-            "LLM call | model=%s | msgs=%d | temp=%.2f | max_tokens=%d",
+            "LLM call | model=%s | msgs=%d | temp=%.2f | max_tokens=%s",
             self.model,
             len(messages),
             temperature,
-            max_tokens,
+            max_tokens if max_tokens is not None else "unlimited",
         )
-        response = self.client.chat.completions.create(
+        kwargs = dict(
             model=self.model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
             timeout=config.llm_timeout_seconds,
         )
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = self.client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content
         logger.debug(
             "LLM response | %d chars received",

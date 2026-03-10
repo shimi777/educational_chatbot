@@ -85,6 +85,8 @@ def _init_session_state() -> None:
         "prep_minutes": app_config.default_prep_minutes,
         "teaching_minutes": app_config.default_teaching_minutes,
         "session_id": None,
+        "bot_knowledge_level": 1,
+        "lesson_lang": "he",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -223,6 +225,36 @@ def _screen_setup() -> None:
             ),
         )
 
+        knowledge_options = {
+            1: t("1 — Struggling student", "1 — תלמיד מתקשה"),
+            2: t("2 — Basic knowledge", "2 — ידע בסיסי"),
+            3: t("3 — Advanced (slightly misleading)", "3 — מתקדם (מטעה קצת)"),
+        }
+        st.session_state.bot_knowledge_level = st.selectbox(
+            t("Bot knowledge level", "רמת ידע הבוט"),
+            options=[1, 2, 3],
+            format_func=lambda x: knowledge_options[x],
+            index=st.session_state.bot_knowledge_level - 1,
+            key="knowledge_level_input",
+            help=t(
+                "Controls how knowledgeable the virtual student is. Level 1: confused and struggling. Level 2: has basic understanding, asks for definitions. Level 3: knows the material, sometimes offers wrong analogies to test the teacher.",
+                "שולט ברמת הידע של התלמיד הווירטואלי. רמה 1: מבולבל ומתקשה. רמה 2: הבנה בסיסית, שואל על הגדרות. רמה 3: מכיר את החומר, לפעמים מציע אנלוגיות שגויות כדי לבדוק את המורה.",
+            ),
+        )
+
+        lesson_lang_options = {"he": t("Hebrew", "עברית"), "en": t("English", "אנגלית")}
+        st.session_state.lesson_lang = st.selectbox(
+            t("Lesson language for student", "שפת השיעור לתלמיד"),
+            options=["he", "en"],
+            format_func=lambda x: lesson_lang_options[x],
+            index=0 if st.session_state.lesson_lang == "he" else 1,
+            key="lesson_lang_input",
+            help=t(
+                "The language the student will see the lesson and chat in.",
+                "השפה שבה התלמיד יראה את השיעור וישוחח.",
+            ),
+        )
+
         if st.button(t("Generate Topic", "צור נושא"), type="primary",
                      use_container_width=True, key="btn_generate"):
             material_val = st.session_state.material_text.strip()
@@ -242,6 +274,7 @@ def _screen_setup() -> None:
                         tc = generator.generate_topic_config(
                             material_val,
                             target_age=int(st.session_state.student_age),
+                            bot_knowledge_level=int(st.session_state.bot_knowledge_level),
                         )
                         st.session_state.topic_config = tc
                         save_path = os.path.join(
@@ -438,7 +471,8 @@ def _screen_settings() -> None:
                 "prep_minutes": st.session_state.prep_minutes,
                 "teaching_minutes": st.session_state.teaching_minutes,
                 "student_age": st.session_state.student_age,
-                "lang": st.session_state.lang,
+                "lang": st.session_state.lesson_lang,
+                "bot_knowledge_level": st.session_state.bot_knowledge_level,
             }
             try:
                 save_session(sid, tc, settings_dict)

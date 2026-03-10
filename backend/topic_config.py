@@ -25,6 +25,7 @@ class TopicConfig:
     subject_area_en: str = ""
     subject_area_he: str = ""
     target_age: int = 10
+    bot_knowledge_level: int = 1  # 1=struggling, 2=basic knowledge, 3=advanced+misleading
 
     # --- Learning Content ---
     key_concepts_en: List[str] = field(default_factory=list)
@@ -93,6 +94,9 @@ class TopicConfig:
 
     def get_lesson_summary(self, lang: str = "en") -> str:
         return self.lesson_summary_he if lang == "he" else self.lesson_summary_en
+
+    def get_bot_knowledge_level(self) -> int:
+        return self.bot_knowledge_level
 
     # ================================================================
     # SERIALIZATION
