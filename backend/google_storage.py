@@ -18,8 +18,6 @@ from typing import Any, Dict, Optional
 import gspread
 import streamlit as st
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaInMemoryUpload
 
 from backend.logger import get_logger
 
@@ -27,11 +25,11 @@ logger = get_logger(__name__)
 
 _SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
 ]
 
 _WS_SESSIONS = "Sessions"
 _WS_EVALUATIONS = "Evaluations"
+_WS_TRANSCRIPTS = "Transcripts"
 
 
 class GoogleStorage:
@@ -43,12 +41,9 @@ class GoogleStorage:
         self._spreadsheet = self._gc.open_by_key(spreadsheet_id)
         self._sessions_ws = self._spreadsheet.worksheet(_WS_SESSIONS)
         self._evaluations_ws = self._spreadsheet.worksheet(_WS_EVALUATIONS)
+        self._transcripts_ws = self._spreadsheet.worksheet(_WS_TRANSCRIPTS)
         self._drive_folder_id = drive_folder_id
-        self._drive_service = (
-            build("drive", "v3", credentials=self._creds, cache_discovery=False)
-            if drive_folder_id
-            else None
-        )
+        self._drive_service = None  # Service accounts lack Drive quota; transcripts go to Sheets
         logger.info(
             "GoogleStorage initialized | spreadsheet=%s drive_folder=%s",
             spreadsheet_id,
@@ -187,38 +182,29 @@ class GoogleStorage:
         transcript_text: str,
     ) -> Optional[str]:
         """
-        Upload a transcript text file to Google Drive.
+        Save transcript text to the Transcripts worksheet in Google Sheets.
 
-        Returns the web view URL, or None if Drive is not configured.
+        Service accounts lack Drive storage quota, so we store transcripts
+        in a dedicated Sheets tab instead of Google Drive.
+
+        Returns a placeholder string on success, or None on failure.
         """
-        if not self._drive_service or not self._drive_folder_id:
-            logger.warning("Google Drive not configured; skipping transcript upload")
-            return None
-
         safe_name = (
             student_name.replace(" ", "_").replace("/", "_").replace("\\", "_")
         )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_name = f"{session_id}_{safe_name}_{timestamp}.txt"
 
-        file_metadata = {
-            "name": file_name,
-            "parents": [self._drive_folder_id],
-            "mimeType": "text/plain",
-        }
-        media = MediaInMemoryUpload(
-            transcript_text.encode("utf-8"),
-            mimetype="text/plain",
-        )
-        uploaded = (
-            self._drive_service.files()
-            .create(body=file_metadata, media_body=media, fields="id,webViewLink")
-            .execute()
-        )
-
-        link = uploaded.get("webViewLink", "")
-        logger.info("Transcript uploaded: %s → %s", file_name, link)
-        return link
+        row = [
+            session_id,
+            student_name,
+            datetime.now().isoformat(),
+            file_name,
+            transcript_text,
+        ]
+        self._transcripts_ws.append_row(row, value_input_option="RAW")
+        logger.info("Transcript saved to Sheets: %s", file_name)
+        return file_name
 
 
 # ---------------------------------------------------------------------------
