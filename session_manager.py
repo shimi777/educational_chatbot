@@ -6,6 +6,7 @@ configured; otherwise falls back to local JSON files in sessions/ for
 offline development.
 """
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -38,9 +39,23 @@ def _use_cloud() -> bool:
         return False
 
 
-def generate_session_id() -> str:
-    """Generate a short, unique session identifier."""
-    return uuid.uuid4().hex[:8]
+def generate_session_id(
+    topic_name: str = "",
+    bot_knowledge_level: int = 1,
+) -> str:
+    """Generate a descriptive session identifier.
+
+    Format: ``<topic>_L<level>_<YYYYMMDD>_<short-uuid>``
+    Example: ``photosynthesis_L2_20260313_a3f1``
+    """
+    # Sanitise topic: keep only letters, digits, spaces; collapse to slug
+    slug = re.sub(r"[^a-zA-Z0-9\u0590-\u05FF ]+", "", topic_name)
+    slug = "_".join(slug.split())[:30]  # max 30 chars, underscored
+    if not slug:
+        slug = "session"
+    date_str = datetime.now().strftime("%Y%m%d")
+    short_uid = uuid.uuid4().hex[:4]
+    return f"{slug}_L{bot_knowledge_level}_{date_str}_{short_uid}"
 
 
 def save_session(

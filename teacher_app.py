@@ -466,7 +466,10 @@ def _screen_settings() -> None:
                 tc.lesson_summary_en = edited_summary.strip()
             st.session_state.topic_config = tc
 
-            sid = generate_session_id()
+            sid = generate_session_id(
+                topic_name=tc.get_topic_name("en"),
+                bot_knowledge_level=int(st.session_state.bot_knowledge_level),
+            )
             settings_dict = {
                 "prep_minutes": st.session_state.prep_minutes,
                 "teaching_minutes": st.session_state.teaching_minutes,

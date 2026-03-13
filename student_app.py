@@ -162,8 +162,8 @@ def _screen_join() -> None:
     sid = st.text_input(
         t("Session ID", "מזהה מפגש"),
         value=st.session_state.session_id_input,
-        max_chars=20,
-        placeholder="e.g. a1b2c3d4",
+        max_chars=60,
+        placeholder="e.g. Photosynthesis_L2_20260313_a3f1",
         key="sid_input",
     )
     st.session_state.session_id_input = sid
@@ -433,88 +433,129 @@ def _screen_chat() -> None:
     ))
     st.divider()
 
-    # Layout
-    if lang == "he":
-        mentor_col, chat_col = st.columns([3, 7])
+    # ----- CSS: action bar fixed above chat input -----
+    st.markdown("""
+    <style>
+    .action-bar-anchor + [data-testid="stHorizontalBlock"] {
+        position: fixed;
+        bottom: 55px;
+        left: 0; right: 0;
+        background: var(--background-color, #ffffff);
+        border-top: 1px solid #e0e0e0;
+        padding: 6px 1rem;
+        z-index: 100;
+    }
+    /* extra bottom padding so chat messages don't hide behind the bar */
+    .main .block-container { padding-bottom: 120px !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ----- Chat messages -----
+    st.subheader(t("Conversation", "שיחה"))
+
+    # CSS for mentor messages — distinct look inside the chat
+    st.markdown("""
+    <style>
+    .mentor-bubble {
+        background: linear-gradient(135deg, #e8f4f8, #d1ecf1);
+        border-left: 4px solid #0c5460;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 4px 0;
+        font-size: 0.95rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    for msg in st.session_state.chat_messages:
+        role, content = msg["role"], msg["content"]
+        if role == "student":
+            with st.chat_message("user", avatar="🧑‍🎓"):
+                st.markdown(content)
+        elif role == "teacher":
+            with st.chat_message("assistant", avatar="👨‍🏫"):
+                st.markdown(content)
+        elif role == "mentor":
+            with st.chat_message("assistant", avatar="🧙‍♂️"):
+                st.markdown(
+                    f'<div class="mentor-bubble">'
+                    f'<strong>🎓 {t("Mentor Advice", "עצת מנטור")}</strong>'
+                    f'<br>{content}</div>',
+                    unsafe_allow_html=True,
+                )
+
+    if not session_ended:
+        teacher_input = st.chat_input(
+            placeholder=t("Type your explanation here…", "כתוב את הסברך כאן…"),
+            key="chat_input_box",
+        )
+        if teacher_input and teacher_input.strip():
+            if st.session_state.chat_timer_start is None:
+                st.session_state.chat_timer_start = time.time()
+            st.session_state.chat_messages.append(
+                {"role": "teacher", "content": teacher_input.strip()})
+            with st.spinner(t("Student is thinking…", "התלמיד חושב…")):
+                try:
+                    student_reply = manager.send_to_student(teacher_input.strip())
+                    st.session_state.chat_messages.append(
+                        {"role": "student", "content": student_reply})
+                except Exception as exc:
+                    logger.error("send_to_student failed: %s", exc)
+                    st.error(t(f"Error: {exc}", f"שגיאה: {exc}"))
+            st.rerun()
     else:
-        chat_col, mentor_col = st.columns([7, 3])
+        st.info(t("Session has ended. See evaluation below.",
+                   "הסשן הסתיים. ראה הערכה למטה."))
 
-    # Chat column
-    with chat_col:
-        st.subheader(t("Conversation", "שיחה"))
-        for msg in st.session_state.chat_messages:
-            role, content = msg["role"], msg["content"]
-            if role == "student":
-                with st.chat_message("user", avatar="🧑‍🎓"):
-                    st.markdown(content)
-            elif role == "teacher":
-                with st.chat_message("assistant", avatar="👨‍🏫"):
-                    st.markdown(content)
+    # ----- Action bar: fixed above chat input -----
+    st.markdown('<div class="action-bar-anchor"></div>', unsafe_allow_html=True)
 
-        if not session_ended:
-            teacher_input = st.chat_input(
-                placeholder=t("Type your explanation here…", "כתוב את הסברך כאן…"),
-                key="chat_input_box",
-            )
-            if teacher_input and teacher_input.strip():
-                if st.session_state.chat_timer_start is None:
-                    st.session_state.chat_timer_start = time.time()
-                st.session_state.chat_messages.append(
-                    {"role": "teacher", "content": teacher_input.strip()})
-                with st.spinner(t("Student is thinking…", "התלמיד חושב…")):
-                    try:
-                        student_reply = manager.send_to_student(teacher_input.strip())
-                        st.session_state.chat_messages.append(
-                            {"role": "student", "content": student_reply})
-                    except Exception as exc:
-                        logger.error("send_to_student failed: %s", exc)
-                        st.error(t(f"Error: {exc}", f"שגיאה: {exc}"))
-                st.rerun()
-        else:
-            st.info(t("Session has ended. See evaluation below.",
-                       "הסשן הסתיים. ראה הערכה למטה."))
-
-    # Mentor column
-    with mentor_col:
-        st.subheader(t("Mentor", "מנטור"))
-        if st.session_state.mentor_messages:
-            for i, advice in enumerate(st.session_state.mentor_messages, 1):
-                with st.expander(t(f"Advice #{i}", f"עצה #{i}"),
-                                 expanded=(i == len(st.session_state.mentor_messages))):
-                    st.markdown(advice)
-        else:
-            st.caption(t("No mentor advice yet.", "עדיין אין עצות מנטור."))
-
-        st.divider()
-
-        if not session_ended:
-            if st.button(t("Ask Mentor", "שאל מנטור"),
-                         use_container_width=True, key="btn_mentor"):
-                last_teacher = _get_last_teacher_msg()
-                last_student = manager.get_last_student_message()
-                if not last_teacher:
-                    st.warning(t("Send at least one message first.",
-                                 "שלח לפחות הודעה אחת תחילה."))
-                else:
-                    with st.spinner(t("Consulting mentor…", "מתייעץ עם מנטור…")):
-                        try:
-                            advice = manager.consult_mentor(
-                                teacher_explanation=last_teacher,
-                                student_context=last_student,
-                            )
-                            st.session_state.mentor_messages.append(advice)
-                        except Exception as exc:
-                            logger.error("consult_mentor failed: %s", exc)
-                            st.error(t(f"Mentor error: {exc}", f"שגיאת מנטור: {exc}"))
-                    st.rerun()
-
-        # Evaluation trigger (two-step)
+    if not session_ended:
         if not st.session_state.confirm_eval_pending:
-            if st.button(t("Get Evaluation", "קבל הערכה"), type="primary",
-                         use_container_width=True, key="btn_evaluate"):
-                st.session_state.confirm_eval_pending = True
-                st.rerun()
+            bcols = st.columns([1, 1, 1, 1])
+            with bcols[0]:
+                if st.button(t("🎓 Ask Mentor", "🎓 שאל מנטור"),
+                             use_container_width=True, key="btn_mentor"):
+                    last_teacher = _get_last_teacher_msg()
+                    last_student = manager.get_last_student_message()
+                    if not last_teacher:
+                        st.warning(t("Send at least one message first.",
+                                     "שלח לפחות הודעה אחת תחילה."))
+                    else:
+                        with st.spinner(t("Consulting mentor…", "מתייעץ עם מנטור…")):
+                            try:
+                                advice = manager.consult_mentor(
+                                    teacher_explanation=last_teacher,
+                                    student_context=last_student,
+                                )
+                                st.session_state.mentor_messages.append(advice)
+                                st.session_state.chat_messages.append(
+                                    {"role": "mentor", "content": advice})
+                            except Exception as exc:
+                                logger.error("consult_mentor failed: %s", exc)
+                                st.error(t(f"Mentor error: {exc}",
+                                           f"שגיאת מנטור: {exc}"))
+                        st.rerun()
+            with bcols[1]:
+                if st.button(t("📊 Get Evaluation", "📊 קבל הערכה"),
+                             type="primary", use_container_width=True,
+                             key="btn_evaluate"):
+                    st.session_state.confirm_eval_pending = True
+                    st.rerun()
+            with bcols[2]:
+                if st.button(t("📋 Summary", "📋 סיכום"),
+                             use_container_width=True, key="btn_summary"):
+                    s = manager.get_conversation_summary()
+                    st.info(t(
+                        f"Turns: {s['turns']} | Your msgs: {s['student_messages']} | Mentor: {s['mentor_consultations']}",
+                        f"תורות: {s['turns']} | הודעות שלך: {s['student_messages']} | מנטור: {s['mentor_consultations']}",
+                    ))
+            with bcols[3]:
+                if st.button(t("🔄 Restart", "🔄 מחדש"),
+                             use_container_width=True, key="btn_restart"):
+                    _start_chat_session(tc, lang)
         else:
+            # Confirmation step for evaluation
             st.warning(t("⚠️ This will end your session. Are you sure?",
                          "⚠️ פעולה זו תסיים את הסשן. האם אתה בטוח?"))
             c1, c2 = st.columns(2)
@@ -522,7 +563,8 @@ def _screen_chat() -> None:
                 if st.button(t("✅ Confirm", "✅ אישור"), type="primary",
                              use_container_width=True, key="btn_eval_confirm"):
                     st.session_state.confirm_eval_pending = False
-                    with st.spinner(t("Evaluating performance…", "מעריך ביצועים…")):
+                    with st.spinner(t("Evaluating performance…",
+                                      "מעריך ביצועים…")):
                         try:
                             result = manager.evaluate_performance()
                             st.session_state.evaluation_result = result
@@ -539,19 +581,6 @@ def _screen_chat() -> None:
                              use_container_width=True, key="btn_eval_cancel"):
                     st.session_state.confirm_eval_pending = False
                     st.rerun()
-
-        if st.button(t("Conversation Summary", "סיכום שיחה"),
-                     use_container_width=True, key="btn_summary"):
-            s = manager.get_conversation_summary()
-            st.info(t(
-                f"Turns: {s['turns']} | Your msgs: {s['student_messages']} | Mentor: {s['mentor_consultations']}",
-                f"תורות: {s['turns']} | הודעות שלך: {s['student_messages']} | מנטור: {s['mentor_consultations']}",
-            ))
-
-        st.divider()
-        if st.button(t("Restart Conversation", "התחל שיחה מחדש"),
-                     use_container_width=True, key="btn_restart"):
-            _start_chat_session(tc, lang)
 
     # Auto-evaluate on timer expiry
     if (timer_start is not None and not session_ended
@@ -607,6 +636,14 @@ def _render_feedback_form() -> None:
         return
 
     lang = st.session_state.lang
+
+    # Compact survey layout — prevent horizontal overflow on RTL
+    st.markdown("""
+    <style>
+    [data-testid="stForm"] { max-width: 600px; margin: 0 auto; overflow: hidden; }
+    [data-testid="stForm"] [data-testid="stSlider"] { max-width: 400px; }
+    </style>
+    """, unsafe_allow_html=True)
 
     st.subheader(t(
         "Help Us Improve — Quick Feedback (3 min)",
@@ -832,10 +869,7 @@ def _screen_evaluation() -> None:
     perf_level = performance_level_label(
         result.get("performance_level", t("Unknown", "לא ידוע")))
     component_scores = result.get("component_scores", {})
-    misconceptions_count = result.get("misconceptions_count", 0)
     notes = result.get("notes", "")
-    comparison = result.get("comparison", {})
-    improvement = comparison.get("improvement") if comparison else None
 
     st.divider()
 
@@ -850,27 +884,46 @@ def _screen_evaluation() -> None:
     )
     st.divider()
 
-    # Per-component verbal feedback
-    if component_scores:
-        st.subheader(t("Evaluation by Category", "הערכה לפי קטגוריה"))
-        for comp_key, score in component_scores.items():
-            label = component_label(comp_key)
-            verbal = verbal_score_label(score)
-            if score == 2:
-                icon, color = "✅", "green"
-            elif score == 1:
-                icon, color = "🔶", "orange"
-            else:
-                icon, color = "🔴", "red"
-            st.markdown(
-                f'<p><strong>{label}</strong> — '
-                f'<span style="color:{color};">{icon} {verbal}</span></p>',
-                unsafe_allow_html=True,
-            )
+    # ---- Strengths: show only what the student did well ----
+    full_marks = {k: v for k, v in component_scores.items() if v == 2}
+    partial = {k: v for k, v in component_scores.items() if v == 1}
+    # Collect teacher quotes for evidence
+    teacher_quotes = [
+        msg["content"] for msg in st.session_state.get("chat_messages", [])
+        if msg["role"] == "teacher"
+    ]
 
+    if full_marks or partial:
+        st.subheader(t("What You Did Well 🌟", "🌟 מה עשית טוב"))
+        for comp_key in full_marks:
+            label = component_label(comp_key)
+            st.markdown(f"✅ **{label}**")
+        for comp_key in partial:
+            label = component_label(comp_key)
+            st.markdown(
+                f"🔶 **{label}** — "
+                f"*{t('partially demonstrated', 'הודגם באופן חלקי')}*"
+            )
+        # Show a representative quote from the student's explanations
+        if teacher_quotes:
+            best_quote = max(teacher_quotes, key=len)
+            # Trim to a reasonable length
+            if len(best_quote) > 300:
+                best_quote = best_quote[:300] + "…"
+            st.markdown(
+                f'> *{t("Your explanation", "ההסבר שלך")}:* "{best_quote}"'
+            )
+    else:
+        st.info(t(
+            "Keep practicing — you're on your way!",
+            "!המשך לתרגל — אתה בדרך הנכונה",
+        ))
+
+    # ---- Feedback with improvement tips ----
     if notes:
         st.divider()
-        st.subheader(t("Feedback", "משוב"))
+        st.subheader(t("Feedback & Tips for Improvement",
+                       "משוב וטיפים לשיפור"))
         st.markdown(notes)
 
     st.divider()
@@ -955,6 +1008,7 @@ def _build_transcript(result: dict, tc: Optional[TopicConfig], lang: str) -> str
         for i, msg in enumerate(chat_msgs, 1):
             role_label = (t("Student", "תלמיד") if msg["role"] == "student"
                           else t("Teacher (You)", "מורה (אתה)") if msg["role"] == "teacher"
+                          else t("Mentor", "מנטור") if msg["role"] == "mentor"
                           else msg["role"].title())
             lines.append(f"[{i}] {role_label}:")
             lines.append(msg["content"])

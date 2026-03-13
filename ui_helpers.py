@@ -93,6 +93,8 @@ def inject_rtl_css() -> None:
         .stRadio label, .stSelectbox label { direction: rtl; }
         [data-testid="stMetricLabel"] { direction: rtl; text-align: right; }
         h1, h2, h3, h4, h5, h6, p, li { direction: rtl; text-align: right; }
+        /* Keep sliders LTR to prevent layout jump in RTL mode */
+        [data-testid="stSlider"] { direction: ltr; overflow: hidden; }
         </style>
         """,
         unsafe_allow_html=True,
