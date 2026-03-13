@@ -1,0 +1,411 @@
+{
+  "version": "2.1",
+  "purpose": "Topic-agnostic evaluation of student explanations with component scoring, performance levels, supportive feedback, and improvement tracking.",
+  "topic": {
+    "title": "REPLACE_ME (e.g., Newton's First Law / Supply & Demand / Bubble Sort / Photosynthesis)",
+    "domain": "REPLACE_ME (e.g., physics / economics / computer_science / history)",
+    "difficulty": "REPLACE_ME (intro / intermediate / advanced)",
+    "source_truth_summary": "REPLACE_ME: concise truth reference (what a correct explanation must include).",
+    "truth_schema": {
+      "core_statement": "REPLACE_ME: the main claim / definition in plain language.",
+      "formal_form": "REPLACE_ME or null if no formal form is appropriate for this topic.",
+      "conditions": [
+        "REPLACE_ME"
+      ],
+      "mechanism": [
+        "REPLACE_ME"
+      ],
+      "distinctions": [
+        "REPLACE_ME"
+      ],
+      "examples": [
+        "REPLACE_ME"
+      ],
+      "misconceptions": [
+        "REPLACE_ME"
+      ]
+    }
+  },
+  "scoring": {
+    "point_scale": {
+      "0": "Absent, clearly incorrect, irrelevant, or contradicts the truth schema.",
+      "1": "Partially present, implied, paraphrased, simplified, incomplete, vague, or only approximately correct.",
+      "2": "Clear, accurate, explicit, and well integrated into the explanation."
+    },
+    "scoring_principles": [
+      "Do not require the exact wording of the truth schema.",
+      "Accept paraphrases, simplified wording, and implied meanings when they convey the correct idea.",
+      "If a component is approximately correct or partially implied, prefer score 1 over score 0.",
+      "Student explanations may be informal; focus on underlying meaning rather than terminology alone.",
+      "Formal / precise form is optional unless the topic genuinely requires it."
+    ],
+    "default_max_points_per_component": 2,
+    "aggregation": {
+      "method": "sum",
+      "rounding": "none"
+    },
+    "expected_score_distribution": {
+      "weak_explanation": "2-5",
+      "basic_explanation": "6-8",
+      "good_explanation": "9-13",
+      "excellent_explanation": "14-16"
+    }
+  },
+  "performance_levels": [
+    {
+      "id": "L1",
+      "label": "Limited Understanding",
+      "name": "Limited Understanding",
+      "min_score_inclusive": 0,
+      "max_score_inclusive": 5,
+      "min_score": 0,
+      "max_score": 5,
+      "interpretation": "Fragmented, unclear, or mostly incomplete explanation; several key components are missing."
+    },
+    {
+      "id": "L2",
+      "label": "Developing Understanding",
+      "name": "Developing Understanding",
+      "min_score_inclusive": 6,
+      "max_score_inclusive": 11,
+      "min_score": 6,
+      "max_score": 11,
+      "interpretation": "Partial but meaningful understanding; the main idea is present, but depth, clarity, or support is still limited."
+    },
+    {
+      "id": "L3",
+      "label": "Strong Understanding",
+      "name": "Strong Understanding",
+      "min_score_inclusive": 12,
+      "max_score_inclusive": 16,
+      "min_score": 12,
+      "max_score": 16,
+      "interpretation": "Integrated and accurate explanation; key ideas are connected with logic, conditions, examples, or misconception handling."
+    }
+  ],
+  "components": [
+    {
+      "id": "core_statement",
+      "key": "core_statement",
+      "name": "Core Statement",
+      "label": "Core Statement",
+      "description": "The main definition/claim in a clear sentence.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 1,
+      "evaluation_question": "Did the student clearly state the main idea correctly?",
+      "observable_indicators": [
+        "Accurate statement of the central claim/definition in plain language or clear paraphrase."
+      ],
+      "detection_hints": {
+        "keywords": [],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Try to state the main idea in one clear sentence.",
+        "if_partial": "Try to make it clearer and state the main idea in one clear sentence."
+      },
+      "feedback_templates": {
+        "strength": "You correctly identified the main idea of the concept.",
+        "improvement": "Try to state the main idea in one clear sentence."
+      }
+    },
+    {
+      "id": "formal_form",
+      "key": "formal_form",
+      "name": "Formal / Precise Form",
+      "label": "Formal / Precise Form",
+      "description": "Equation, theorem statement, algorithm/pseudocode, or a precise rule when the topic naturally has one.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 2,
+      "evaluation_question": "If appropriate for this topic, did the student include a precise/formal form?",
+      "observable_indicators": [
+        "Uses a formal definition, equation, rule, or pseudocode consistent with the truth schema when relevant."
+      ],
+      "detection_hints": {
+        "keywords": [],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "If this topic has a formal rule, definition, equation, or algorithmic form, add it more precisely.",
+        "if_partial": "If this topic has a formal rule, definition, equation, or algorithmic form, add it more precisely."
+      },
+      "feedback_templates": {
+        "strength": "Your explanation uses an appropriately precise formulation of the concept.",
+        "improvement": "If this topic has a formal rule, definition, equation, or algorithmic form, add it more precisely."
+      }
+    },
+    {
+      "id": "conditions",
+      "key": "conditions",
+      "name": "Necessary Conditions / Assumptions",
+      "label": "Necessary Conditions / Assumptions",
+      "description": "Conditions under which the statement holds (constraints/assumptions).",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 3,
+      "evaluation_question": "Did the student state the key assumptions/conditions?",
+      "observable_indicators": [
+        "Explicitly names assumptions or constraints (e.g., only when, assuming, if) or clearly implies them through the explanation."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "if",
+          "assuming",
+          "only when",
+          "given that"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Add the conditions or assumptions under which the idea is true.",
+        "if_partial": "Make it clearer by adding the conditions or assumptions under which the idea is true."
+      },
+      "feedback_templates": {
+        "strength": "You mentioned the conditions under which the idea holds.",
+        "improvement": "Add the conditions or assumptions under which the idea is true."
+      }
+    },
+    {
+      "id": "mechanism",
+      "key": "mechanism",
+      "name": "Mechanism / Cause–Effect / Logic",
+      "label": "Mechanism / Cause–Effect / Logic",
+      "description": "Explains why/how: causal chain, logical implication, or mechanism.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 4,
+      "evaluation_question": "Did the student explain the mechanism or logic (not only the outcome)?",
+      "observable_indicators": [
+        "Uses causal or logical structure (e.g., because, therefore, if-then) or otherwise explains why/how the idea works."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "because",
+          "therefore",
+          "so",
+          "if",
+          "then"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Explain how or why the concept works, not only what happens.",
+        "if_partial": "Explain it more clearly and how or why the concept works, not only what happens."
+      },
+      "feedback_templates": {
+        "strength": "You explained how or why the concept works.",
+        "improvement": "Explain how or why the concept works, not only what happens."
+      }
+    },
+    {
+      "id": "distinctions",
+      "key": "distinctions",
+      "name": "Conceptual Distinctions",
+      "label": "Conceptual Distinctions",
+      "description": "Distinguishes related concepts that students often confuse.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 5,
+      "evaluation_question": "Did the student distinguish this concept from common confusions?",
+      "observable_indicators": [
+        "Explicitly contrasts two nearby concepts or implicitly shows the difference accurately."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "not",
+          "different from",
+          "vs",
+          "versus"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Clarify how this concept differs from a similar or commonly confused idea.",
+        "if_partial": "Clarify it further and how this concept differs from a similar or commonly confused idea."
+      },
+      "feedback_templates": {
+        "strength": "You clearly distinguished this concept from a related idea.",
+        "improvement": "Clarify how this concept differs from a similar or commonly confused idea."
+      }
+    },
+    {
+      "id": "example",
+      "key": "example",
+      "name": "Example / Application",
+      "label": "Example / Application",
+      "description": "A concrete example or analogy that supports the explanation. Not mandatory, but valuable when relevant and well-placed.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 6,
+      "evaluation_question": "Did the student provide a relevant example that supports the explanation?",
+      "observable_indicators": [
+        "Includes a concrete scenario and explicitly or implicitly connects it to the concept."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "for example",
+          "e.g.",
+          "such as"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Consider adding a concrete example to strengthen your explanation, if appropriate.",
+        "if_partial": "Make it clearer by adding one concrete example and connect it explicitly to the idea."
+      },
+      "feedback_templates": {
+        "strength": "Your example helps illustrate the concept clearly.",
+        "improvement": "Add one concrete example and connect it explicitly to the idea."
+      }
+    },
+    {
+      "id": "misconceptions",
+      "key": "misconceptions",
+      "name": "Misconception Handling",
+      "label": "Misconception Handling",
+      "description": "Identifies and corrects a common misconception.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 7,
+      "evaluation_question": "Did the student address a common misconception and correct it?",
+      "observable_indicators": [
+        "Names a typical wrong belief and explains why it is wrong, or avoids a known misconception while explaining the idea correctly."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "many people think",
+          "common misconception",
+          "but that's wrong",
+          "actually"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Mention a common misunderstanding and explain why it is incorrect.",
+        "if_partial": "Mention a common misunderstanding and explain why it is incorrect."
+      },
+      "feedback_templates": {
+        "strength": "You avoided or corrected a common misconception.",
+        "improvement": "Mention a common misunderstanding and explain why it is incorrect."
+      }
+    },
+    {
+      "id": "concept_relationships",
+      "key": "concept_relationships",
+      "name": "Concept Relationships",
+      "label": "Concept Relationships",
+      "description": "Demonstrates understanding of how key concepts relate to each other, including cause-effect chains, hierarchies, or dependencies.",
+      "max_points": 2,
+      "weight": 1.0,
+      "priority": 8,
+      "evaluation_question": "Did the student explain how key concepts are related to each other?",
+      "observable_indicators": [
+        "Explicitly connects two or more concepts showing how they relate (e.g., cause-effect, hierarchy, dependency).",
+        "Shows understanding of the logical or causal chain between ideas in the topic."
+      ],
+      "detection_hints": {
+        "keywords": [
+          "leads to",
+          "causes",
+          "depends on",
+          "related to",
+          "connected",
+          "because of"
+        ],
+        "regex": []
+      },
+      "mentor_feedback": {
+        "if_missing": "Try to explain how the key concepts connect to each other.",
+        "if_partial": "You started connecting concepts — try to make the relationships more explicit."
+      },
+      "feedback_templates": {
+        "strength": "You effectively showed how the key concepts relate to each other.",
+        "improvement": "Try to explain how the key concepts connect to each other."
+      }
+    }
+  ],
+  "mentor_policy": {
+    "max_targets_per_round": 2,
+    "selection_rules": [
+      "Prefer components scored 0 over components scored 1.",
+      "If ties, prioritize core_statement, mechanism, and conditions before lower-priority components.",
+      "Do not target components already scored 2.",
+      "When possible, mention at least one student strength before improvement targets."
+    ],
+    "summary_feedback_rules": {
+      "length": "2-3 sentences",
+      "structure": [
+        "Start with a positive sentence about something correct or improved.",
+        "Mention one or two strengths based on components scored 2 or improved since the previous attempt.",
+        "Give one or two concrete suggestions for improvement based on components scored 0 or 1."
+      ],
+      "tone": "supportive, specific, concise, and student-facing",
+      "avoid": [
+        "Do not start with criticism.",
+        "Do not list too many weaknesses.",
+        "Do not mention raw score only without guidance."
+      ]
+    },
+    "response_template": {
+      "positive_opening_options": [
+        "Good start.",
+        "Nice attempt.",
+        "You already show some understanding of the concept.",
+        "Good progress."
+      ],
+      "strength_sentence": "State what the student answered correctly.",
+      "improvement_sentence": "Suggest one or two specific next steps.",
+      "rewrite_request": "Please rewrite your explanation in 3-5 structured sentences addressing the points above."
+    }
+  },
+  "improvement": {
+    "metrics": [
+      {
+        "id": "delta_total_score",
+        "definition": "total_score_after - total_score_before"
+      },
+      {
+        "id": "components_improved",
+        "definition": "count of components where score_after > score_before"
+      },
+      {
+        "id": "coverage_rate",
+        "definition": "count(score>=1)/num_components"
+      },
+      {
+        "id": "misconception_reduction",
+        "definition": "misconceptions score increases to 2 or improves by at least 1"
+      },
+      {
+        "id": "learning_progress_profile",
+        "definition": "per-component before/after status used to summarize which knowledge elements improved, stayed stable, or still need work"
+      }
+    ],
+    "progress_feedback_rule": "When before and after explanations are available, mention one meaningful improvement first, then one remaining target."
+  },
+  "evaluator_instructions": [
+    "Compare the student explanation to the truth schema for the topic.",
+    "Detect component presence even when the student uses different wording, simplified phrasing, or examples.",
+    "Treat implied but correct ideas as partial evidence unless they are clearly explicit and accurate.",
+    "Avoid assigning all zeros unless the explanation is genuinely irrelevant, contradictory, or empty.",
+    "Most explanations should contain at least one detectable component."
+  ],
+  "llm_instructions": [
+    "You are evaluating a student's explanation of a topic, not evaluating a teacher.",
+    "Use the topic.truth_schema as the reference for what counts as correct.",
+    "Assign each component a score of exactly 0, 1, or 2.",
+    "Score 0 only when the component is missing, clearly incorrect, irrelevant, or contradicted.",
+    "If there is any valid evidence, paraphrase, simplified wording, or implied correct idea, prefer 1 over 0.",
+    "Do NOT require exact keywords from detection_hints; they are only hints and not scoring rules.",
+    "Formal / precise form should not be penalized when the topic does not naturally require it.",
+    "Avoid all-zero outputs unless the explanation is empty, fully irrelevant, or fully contradictory.",
+    "Return supportive verbal feedback, not score only.",
+    "The verbal feedback must begin with one positive sentence about what the student did correctly.",
+    "Then include one or two specific improvement points based on components scored 0 or 1.",
+    "When before and after explanations are available, mention one meaningful improvement first and then one remaining target.",
+    "For each component, provide a short notes field explaining why the score was given, based on the student's actual wording.",
+    "Return valid JSON only — no markdown, no extra keys outside the expected response structure."
+  ]
+}
